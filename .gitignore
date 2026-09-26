@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Environment files — everything except the checked-in .env.example templates
+.env
+.env.*
+!.env.example
+!*/.env.example
+
+# Build output
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+
+# Coverage output
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Temporary files
+.tmp/
+*.tmp
+tmp/
+
+# Editor-specific temporary files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Scratch files accidentally left in the repo
+*_scratch.txt
