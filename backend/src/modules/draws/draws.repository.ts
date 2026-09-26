@@ -24,6 +24,9 @@ export function createDrawsRepository(db: Database) {
         .selectAll()
         .where("game_id", "=", gameId)
         .where("status", "=", "SALES_OPEN")
+        // No scheduler moves a draw to SALES_CLOSED at its cutoff yet, so a past-cutoff draw
+        // can still carry SALES_OPEN — skip it the same way order creation rejects it.
+        .where("sales_closes_at", ">", new Date())
         .orderBy("draw_at")
         .executeTakeFirst();
     },

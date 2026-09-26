@@ -1,5 +1,19 @@
 const tomanFormatter = new Intl.NumberFormat("fa-IR");
 
+/** Maps Persian (۰-۹) and Arabic-Indic (٠-٩) digits to ASCII 0-9 and leaves every other
+ * character untouched — a string transform, so leading zeroes are preserved. */
+export function toAsciiDigits(value: string): string {
+  return value.replace(/[۰-۹٠-٩]/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
+  });
+}
+
+/** Normalizes Persian/Arabic digits, then drops anything that isn't an ASCII digit. */
+export function digitsOnly(value: string): string {
+  return toAsciiDigits(value).replace(/[^0-9]/g, "");
+}
+
 export function formatToman(value: string | number): string {
   const numeric = typeof value === "string" ? Number(value) : value;
   if (!Number.isFinite(numeric)) return "-";

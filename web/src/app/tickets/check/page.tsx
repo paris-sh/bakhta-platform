@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ApiError, api } from "@/lib/api-client";
 import { ErrorMessage, LoadingMessage } from "@/components/StatusMessage";
 import { formatPersianDateTime, formatToman } from "@/lib/format";
+import { drawStatusFa, gameTypeFa, ticketOutcomeFa, ticketStatusFa } from "@/lib/labels";
 import type { PublicTicketCheck } from "@/lib/types";
 
 export default function TicketCheckPage() {
@@ -12,16 +13,23 @@ export default function TicketCheckPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [gameName, setGameName] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setResult(null);
+    setGameName(null);
     setSearched(true);
     try {
       const found = await api.checkTicket(code.trim());
       setResult(found);
+      // Show the game's Persian name as stored in the catalog; the static label is a fallback.
+      api
+        .getGame(found.gameSlug)
+        .then((g) => setGameName(g.nameFa))
+        .catch(() => undefined);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         setResult(null);
@@ -74,13 +82,13 @@ export default function TicketCheckPage() {
             </p>
             <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
               <dt className="text-muted">بازی</dt>
-              <dd>{result.gameCode}</dd>
+              <dd>{gameName ?? gameTypeFa(result.gameCode)}</dd>
               <dt className="text-muted">شماره قرعه‌کشی</dt>
               <dd dir="ltr">{result.drawNumber}</dd>
               <dt className="text-muted">زمان قرعه‌کشی</dt>
               <dd title={result.drawAt}>{formatPersianDateTime(result.drawAt)}</dd>
               <dt className="text-muted">وضعیت قرعه‌کشی</dt>
-              <dd>{result.drawStatus}</dd>
+              <dd>{drawStatusFa(result.drawStatus)}</dd>
               <dt className="text-muted">انتخاب</dt>
               <dd>
                 {result.selection.kind === "FOUR_LEAF"
@@ -90,9 +98,9 @@ export default function TicketCheckPage() {
               <dt className="text-muted">قیمت</dt>
               <dd>{formatToman(result.unitPriceToman)}</dd>
               <dt className="text-muted">وضعیت بلیط</dt>
-              <dd>{result.status}</dd>
+              <dd>{ticketStatusFa(result.status)}</dd>
               <dt className="text-muted">نتیجه</dt>
-              <dd>{result.outcomeStatus}</dd>
+              <dd>{ticketOutcomeFa(result.outcomeStatus)}</dd>
             </dl>
           </div>
         )}

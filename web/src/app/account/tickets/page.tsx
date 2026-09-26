@@ -6,6 +6,7 @@ import { ApiError, api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { EmptyMessage, ErrorMessage, LoadingMessage } from "@/components/StatusMessage";
 import { formatToman } from "@/lib/format";
+import { ticketOutcomeFa, ticketStatusFa } from "@/lib/labels";
 import type { Ticket } from "@/lib/types";
 
 export default function MyTicketsPage() {
@@ -49,7 +50,9 @@ export default function MyTicketsPage() {
             <span className="font-mono font-bold" dir="ltr">
               {t.publicCode}
             </span>
-            <span className="text-sm text-muted">{t.status}</span>
+            <span className="text-sm text-muted">
+              {ticketStatusFa(t.status)} · {ticketOutcomeFa(t.outcomeStatus)}
+            </span>
           </div>
           <p className="mt-1 text-sm">
             {t.selection.kind === "FOUR_LEAF"

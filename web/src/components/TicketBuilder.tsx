@@ -2,6 +2,7 @@
 
 import { useId } from "react";
 import { draftSelectionKey, validateFourLeafDraft, validateSixChanceDraft } from "@/lib/selection";
+import { digitsOnly } from "@/lib/format";
 import type { FourLeafRules, SixChanceRules, TicketDraft } from "@/lib/types";
 
 interface Props {
@@ -128,7 +129,9 @@ function TicketRow({
         />
       )}
 
-      {error && !draft.isQuickPick && <p className="text-sm text-danger">{error}</p>}
+      {error && !draft.isQuickPick && !isUntouched(draft) && (
+        <p className="text-sm text-danger">{error}</p>
+      )}
       {isDuplicate && (
         <p className="text-sm text-warning">
           این ترکیب در سفارش شما تکراری است. تکرار مجاز است، اما دو بلیط جداگانه محاسبه می‌شود.
@@ -136,6 +139,14 @@ function TicketRow({
       )}
     </div>
   );
+}
+
+/** An untouched row hasn't been typed into yet — no point showing a validation error on
+ * it; the checkout button stays disabled until every row is valid anyway. */
+function isUntouched(draft: TicketDraft): boolean {
+  return draft.kind === "FOUR_LEAF"
+    ? draft.fourLeafNumber === ""
+    : draft.numbers.every((n) => n === null) && draft.symbol === null;
 }
 
 function FourLeafInput({
@@ -155,7 +166,7 @@ function FourLeafInput({
         maxLength={4}
         placeholder="0000"
         value={value}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 4))}
+        onChange={(e) => onChange(digitsOnly(e.target.value).slice(0, 4))}
         className="focus-ring w-32 rounded-lg border border-border bg-background px-3 py-2 text-center font-mono text-lg tracking-widest"
         aria-label="عدد چهار رقمی چهار برگ"
       />
@@ -178,7 +189,8 @@ function SixChanceInput({
   const symbolRange = rules.selection.chance_symbol;
 
   function setNumber(i: number, raw: string) {
-    const parsed = raw === "" ? null : Number(raw);
+    const digits = digitsOnly(raw).slice(0, 2);
+    const parsed = digits === "" ? null : Number(digits);
     const next = numbers.map((n, idx) => (idx === i ? parsed : n));
     onChange(next, symbol);
   }
@@ -193,9 +205,8 @@ function SixChanceInput({
           {numbers.map((n, i) => (
             <input
               key={i}
-              type="number"
-              min={min}
-              max={max}
+              type="text"
+              inputMode="numeric"
               value={n ?? ""}
               onChange={(e) => setNumber(i, e.target.value)}
               className="focus-ring h-11 w-14 rounded-lg border border-border bg-background text-center font-mono"
@@ -209,11 +220,13 @@ function SixChanceInput({
           نماد شانس ({symbolRange.min}-{symbolRange.max})
         </label>
         <input
-          type="number"
-          min={symbolRange.min}
-          max={symbolRange.max}
+          type="text"
+          inputMode="numeric"
           value={symbol ?? ""}
-          onChange={(e) => onChange(numbers, e.target.value === "" ? null : Number(e.target.value))}
+          onChange={(e) => {
+            const digits = digitsOnly(e.target.value).slice(0, 2);
+            onChange(numbers, digits === "" ? null : Number(digits));
+          }}
           dir="ltr"
           className="focus-ring h-11 w-14 rounded-lg border border-gold bg-warning-bg text-center font-mono"
           aria-label="نماد شانس"

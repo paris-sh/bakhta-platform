@@ -44,8 +44,7 @@ function pad(n: number): string {
   return n.toString().padStart(2, "0");
 }
 
-export function formatCountdown(parts: CountdownParts): string {
-  if (parts.isPast) return "به پایان رسید";
-  if (parts.days > 0) return `${parts.days} روز و ${pad(parts.hours)}:${pad(parts.minutes)}:${pad(parts.seconds)}`;
+/** hh:mm:ss of the remaining time within the current day (days are rendered separately). */
+export function formatClock(parts: CountdownParts): string {
   return `${pad(parts.hours)}:${pad(parts.minutes)}:${pad(parts.seconds)}`;
 }

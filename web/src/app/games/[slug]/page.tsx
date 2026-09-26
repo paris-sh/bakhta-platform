@@ -27,6 +27,7 @@ import type {
   TicketDraft,
 } from "@/lib/types";
 import { DEMO_MODE } from "@/lib/config";
+import { orderStatusFa, ticketStatusFa } from "@/lib/labels";
 
 type Step = "build" | "checkout" | "result";
 
@@ -36,7 +37,7 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
 
   const [game, setGame] = useState<Game | null>(null);
   const [draw, setDraw] = useState<Draw | null>(null);
-  const [drawMissing, setDrawMissing] = useState(false);
+  const [drawState, setDrawState] = useState<"loading" | "ready" | "none" | "error">("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [drafts, setDrafts] = useState<TicketDraft[]>([]);
@@ -59,22 +60,38 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setLoadError(err instanceof ApiError ? err.message : "خطا در دریافت اطلاعات بازی.");
+        setLoadError(
+          err instanceof ApiError && err.status === 404
+            ? "بازی موردنظر یافت نشد."
+            : err instanceof ApiError
+              ? err.message
+              : "خطا در دریافت اطلاعات بازی.",
+        );
       });
     api
       .getNextDraw(slug)
       .then((d) => {
-        if (!cancelled) setDraw(d);
+        if (cancelled) return;
+        setDraw(d);
+        setDrawState("ready");
       })
-      .catch(() => {
-        if (!cancelled) setDrawMissing(true);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // 404 = no draw currently open for sales; anything else is a real failure.
+        setDrawState(err instanceof ApiError && err.status === 404 ? "none" : "error");
       });
     return () => {
       cancelled = true;
     };
   }, [slug]);
 
-  const rules = game?.activeRules ?? null;
+  // Price, validation and the selection UI must follow the selected draw's own snapshotted
+  // rule version (the backend prices orders from it), never the game's current active rules
+  // — those may already be a newer version than the one this draw was created under.
+  const rules = draw?.currentRulesSnapshot ?? null;
+  // Header summary only: before a draw is known (or when none is open) fall back to the
+  // game's active rules purely for display.
+  const summaryRules = rules ?? game?.activeRules ?? null;
 
   const validDrafts = useMemo(() => {
     if (!rules || drafts.length === 0) return false;
@@ -164,7 +181,7 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
     );
   }
 
-  if (!game || !rules) {
+  if (!game) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-10">
         <LoadingMessage label="در حال بارگذاری بازی..." />
@@ -176,11 +193,23 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
     <div className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-8 sm:px-6">
       <header className="rounded-2xl border border-border bg-surface p-6">
         <h1 className="text-2xl font-extrabold">{game.nameFa}</h1>
-        <GameRulesSummary rules={rules} gameType={game.gameType} />
+        {summaryRules && <GameRulesSummary rules={summaryRules} gameType={game.gameType} />}
       </header>
 
-      {drawMissing && (
-        <ErrorMessage message="در حال حاضر قرعه‌کشی فعالی برای این بازی وجود ندارد." />
+      {drawState === "loading" && <LoadingMessage label="در حال دریافت قرعه‌کشی بعدی..." />}
+
+      {drawState === "none" && (
+        <div className="rounded-2xl border border-dashed border-border bg-surface p-6 text-center">
+          <p className="font-semibold">در حال حاضر هیچ قرعه‌کشی‌ای با فروش باز برای این بازی وجود ندارد.</p>
+          <p className="mt-1 text-sm text-muted">لطفاً بعداً دوباره سر بزنید.</p>
+          <Link href="/" className="mt-3 inline-block text-brand underline">
+            بازگشت به صفحه اصلی
+          </Link>
+        </div>
+      )}
+
+      {drawState === "error" && (
+        <ErrorMessage message="دریافت اطلاعات قرعه‌کشی با خطا مواجه شد. لطفاً صفحه را دوباره بارگذاری کنید." />
       )}
 
       {draw && (
@@ -202,7 +231,7 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
         </section>
       )}
 
-      {step === "build" && draw && (
+      {step === "build" && draw && rules && (
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold">انتخاب بلیط‌ها</h2>
@@ -306,7 +335,7 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
                   {t.publicCode}
                 </p>
                 <p className="text-sm text-muted">{describeSelection(t.selection)}</p>
-                <p className="text-sm">وضعیت: {orderStatusFa(t.status)}</p>
+                <p className="text-sm">وضعیت: {ticketStatusFa(t.status)}</p>
               </div>
             ))}
           </div>
@@ -378,14 +407,4 @@ function GameRulesSummary({
 function describeSelection(selection: { kind: string; numberValue?: string; numbers?: number[]; symbol?: number }) {
   if (selection.kind === "FOUR_LEAF") return `عدد: ${selection.numberValue}`;
   return `اعداد: ${selection.numbers?.join(" - ")} | نماد شانس: ${selection.symbol}`;
-}
-
-function orderStatusFa(status: string): string {
-  const map: Record<string, string> = {
-    PENDING_PAYMENT: "در انتظار پرداخت",
-    CONFIRMED: "تأیید شده",
-    PENDING: "در انتظار",
-    CANCELLED: "لغو شده",
-  };
-  return map[status] ?? status;
 }

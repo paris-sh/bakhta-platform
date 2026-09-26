@@ -6,6 +6,7 @@ import { ApiError, api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { EmptyMessage, ErrorMessage, LoadingMessage } from "@/components/StatusMessage";
 import { formatPersianDateTime, formatToman } from "@/lib/format";
+import { orderStatusFa, ticketStatusFa } from "@/lib/labels";
 import type { Order } from "@/lib/types";
 
 export default function MyOrdersPage() {
@@ -45,7 +46,7 @@ export default function MyOrdersPage() {
             <span className="font-mono font-bold" dir="ltr">
               {order.orderNumber}
             </span>
-            <span className="text-sm text-muted">{order.status}</span>
+            <span className="text-sm text-muted">{orderStatusFa(order.status)}</span>
           </div>
           <p className="mt-1 text-sm text-muted" title={order.createdAt}>
             {formatPersianDateTime(order.createdAt)}
@@ -57,7 +58,7 @@ export default function MyOrdersPage() {
                 <span className="font-mono" dir="ltr">
                   {t.publicCode}
                 </span>
-                <span className="text-muted">{t.status}</span>
+                <span className="text-muted">{ticketStatusFa(t.status)}</span>
               </li>
             ))}
           </ul>

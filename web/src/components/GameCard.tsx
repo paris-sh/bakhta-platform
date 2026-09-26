@@ -4,7 +4,8 @@ import { formatPersianDateTime, formatToman } from "@/lib/format";
 import type { Draw, FourLeafRules, Game, SixChanceRules } from "@/lib/types";
 
 export function GameCard({ game, draw }: { game: Game; draw: Draw | null }) {
-  const rules = game.activeRules;
+  // Prefer the upcoming draw's snapshotted rules — that is what a purchase will be priced at.
+  const rules = draw?.currentRulesSnapshot ?? game.activeRules;
   const isSixChance = game.gameType === "SIX_CHANCE";
 
   const price = rules ? formatToman(rules.ticket_price_toman) : "-";
