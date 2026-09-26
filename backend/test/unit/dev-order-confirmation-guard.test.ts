@@ -17,6 +17,7 @@ function fakeEnv(overrides: Partial<Env>): Env {
     AUTH_RATE_LIMIT_MAX_ATTEMPTS: 10,
     AUTH_RATE_LIMIT_WINDOW_MINUTES: 15,
     DEV_ORDER_CONFIRMATION_ENABLED: false,
+    CORS_ORIGINS: ["http://localhost:3001"],
     ...overrides,
   };
 }

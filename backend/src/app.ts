@@ -1,3 +1,4 @@
+import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   serializerCompiler,
@@ -40,6 +41,18 @@ export function buildApp(env: Env, db: Database): FastifyInstance {
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  // Explicit-origin CORS only — never a wildcard, and never a blanket reflect-any-origin.
+  // Only the configured local frontend origin(s) may call this API, and only with the
+  // methods/headers the frontend actually needs (Authorization for bearer sessions,
+  // Idempotency-Key for order creation). No cookies are ever involved, so credentials
+  // stays false — this API was never designed to accept cookie-based auth.
+  void app.register(cors, {
+    origin: env.CORS_ORIGINS,
+    credentials: false,
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
+  });
 
   registerErrorHandler(app);
 

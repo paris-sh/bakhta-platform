@@ -32,6 +32,16 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+
+  // CORS is explicit-origin only — never a wildcard, and never reflects an arbitrary
+  // Origin header. This is the one local frontend origin (the Next.js dev server) allowed
+  // to call this API with `Authorization: Bearer ...`; anything else is rejected by
+  // @fastify/cors before the route handler ever runs. A comma-separated list allows more
+  // than one local origin (e.g. both localhost and 127.0.0.1) without ever widening to "*".
+  CORS_ORIGINS: z
+    .string()
+    .default("http://localhost:3001")
+    .transform((v) => v.split(",").map((s) => s.trim()).filter((s) => s.length > 0)),
 });
 
 export type Env = z.infer<typeof envSchema>;
