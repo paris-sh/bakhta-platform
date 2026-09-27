@@ -7,8 +7,18 @@ import { ChanceSymbolBadge } from "./ChanceSymbol";
 
 /** A ticket's numbers drawn as digit tiles (Four Leaf) or lottery balls (Six Chance). A
  * Four Leaf number is one number, so it always reads left-to-right; Six Chance balls are a
- * sequence and follow the reading direction (first ball at the start, symbol at the end). */
-export function SelectionDisplay({ selection, size = "md" }: { selection: TicketSelection; size?: "sm" | "md" }) {
+ * sequence and follow the reading direction (first ball at the start, symbols at the end).
+ * A system line shows its number pool and every selected symbol, plus — when given — how
+ * many chances it covers. The individual combinations are never listed. */
+export function SelectionDisplay({
+  selection,
+  size = "md",
+  combinationCount,
+}: {
+  selection: TicketSelection;
+  size?: "sm" | "md";
+  combinationCount?: number;
+}) {
   const { t, locale, digits } = useI18n();
   const cell = size === "sm" ? "h-7 min-w-7 text-sm" : "h-9 min-w-9 text-base";
 
@@ -27,10 +37,17 @@ export function SelectionDisplay({ selection, size = "md" }: { selection: Ticket
     );
   }
 
+  const symbols = selection.kind === "SIX_CHANCE" ? [selection.symbol] : selection.symbols;
+  const list = (items: string[]) => new Intl.ListFormat(locale, { type: "unit", style: "short" }).format(items);
+  const symbolNames = symbols.map((id) => chanceSymbol(id)?.label[locale] ?? t.status.unknown);
+  const showChances = combinationCount !== undefined && combinationCount > 1;
+
   return (
     <div
       className="flex flex-wrap items-center gap-1.5"
-      aria-label={`${t.selection.numbers}: ${new Intl.ListFormat(locale, { type: "unit", style: "short" }).format(selection.numbers.map((n) => digits(n)))} — ${t.selection.symbol}: ${chanceSymbol(selection.symbol)?.label[locale] ?? t.status.unknown}`}
+      aria-label={`${t.selection.numbers}: ${list(selection.numbers.map((n) => digits(n)))} — ${
+        symbols.length > 1 ? t.selection.symbols : t.selection.symbol
+      }: ${list(symbolNames)}${showChances ? ` — ${t.play.chances(combinationCount)}` : ""}`}
     >
       {selection.numbers.map((n, i) => (
         <span
@@ -41,7 +58,10 @@ export function SelectionDisplay({ selection, size = "md" }: { selection: Ticket
         </span>
       ))}
       <span className="mx-0.5 h-5 w-px bg-border-strong" aria-hidden="true" />
-      <ChanceSymbolBadge id={selection.symbol} size={size} />
+      {symbols.map((id) => (
+        <ChanceSymbolBadge key={id} id={id} size={size} />
+      ))}
+      {showChances && <span className="badge badge-brand">{t.play.chances(combinationCount)}</span>}
     </div>
   );
 }

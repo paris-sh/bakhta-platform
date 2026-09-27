@@ -80,6 +80,50 @@ export const sixChanceRulesV1Schema = z.object({
   lower_tier_cap_reduction_strategy: z.string().min(1),
 });
 
+// schema_version 2 = v1 + Six Chance SYSTEM PLAY limits (inside `selection`). A system line
+// selects a pool of numbers and symbols and covers C(numbers, 6) × symbols combinations; each
+// combination is priced at ticket_price_toman. A v1 snapshot has none of these fields and
+// therefore allows exact picks only (6 numbers × 1 symbol) — see sixChanceLimits().
+//
+// Admin-panel reference (every field is editable per rule version via the existing
+// /v1/admin/games/:id/rule-versions API):
+//   required_numbers_per_combination   numbers in one combination; fixed at 6 (results and
+//                                      exact-pick storage are six-number by construction)
+//   maximum_selected_numbers_per_line  largest number pool on one line (6–33)
+//   maximum_selected_symbols_per_line  largest symbol pool on one line (1–5)
+//   maximum_combinations_per_line      cap on C(n,6)×symbols for one line
+//   maximum_combinations_per_order     cap on the sum of combinations across an order
+export const sixChanceSystemPlayFields = {
+  required_numbers_per_combination: z.literal(6),
+  maximum_selected_numbers_per_line: z.number().int().min(6).max(33),
+  maximum_selected_symbols_per_line: z.number().int().min(1).max(5),
+  maximum_combinations_per_line: z.number().int().positive(),
+  maximum_combinations_per_order: z.number().int().positive(),
+};
+
+export const sixChanceRulesV2Schema = sixChanceRulesV1Schema
+  .extend({
+    schema_version: z.literal(2),
+    selection: sixChanceRulesV1Schema.shape.selection.extend(sixChanceSystemPlayFields),
+  })
+  .superRefine((rules, ctx) => {
+    const s = rules.selection;
+    if (s.required_numbers_per_combination !== s.main_numbers.count) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["selection", "required_numbers_per_combination"],
+        message: "must equal selection.main_numbers.count",
+      });
+    }
+    if (s.maximum_combinations_per_order < s.maximum_combinations_per_line) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["selection", "maximum_combinations_per_order"],
+        message: "must be at least maximum_combinations_per_line",
+      });
+    }
+  });
+
 export const fourLeafRulesV1Schema = z.object({
   schema_version: z.literal(1),
   schedule: scheduleSchema,
@@ -109,6 +153,7 @@ type AnyRulesSchema = z.ZodType<{ schema_version: number }>;
 // schema_version they were created with.
 const SIX_CHANCE_VALIDATORS: Record<number, AnyRulesSchema> = {
   1: sixChanceRulesV1Schema,
+  2: sixChanceRulesV2Schema,
 };
 const FOUR_LEAF_VALIDATORS: Record<number, AnyRulesSchema> = {
   1: fourLeafRulesV1Schema,
@@ -132,4 +177,7 @@ export function supportedSchemaVersions(gameType: GameType): number[] {
 }
 
 export type SixChanceRulesV1 = z.infer<typeof sixChanceRulesV1Schema>;
+export type SixChanceRulesV2 = z.infer<typeof sixChanceRulesV2Schema>;
+/** Any supported Six Chance rules payload (as stored in a draw snapshot). */
+export type SixChanceRules = SixChanceRulesV1 | SixChanceRulesV2;
 export type FourLeafRulesV1 = z.infer<typeof fourLeafRulesV1Schema>;

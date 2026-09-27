@@ -17,12 +17,15 @@ import { Stepper, type PurchaseStep } from "@/components/Stepper";
 import { GLOW, GameIcon, GamePattern, Glow, gameTheme } from "@/components/brand";
 import { ArrowIcon, BackIcon, CalendarIcon, CheckCircleIcon, ClockIcon, PlusIcon, UserIcon } from "@/components/icons";
 import {
+  draftCombinationCount,
+  draftToTicketRequest,
   emptyFourLeafDraft,
   emptySixChanceDraft,
   ticketPriceToman,
   validateFourLeafDraft,
   validateSixChanceDraft,
 } from "@/lib/selection";
+import { sixChanceLimits } from "@/lib/six-chance";
 import type {
   ConfirmOrderResult,
   Draw,
@@ -105,8 +108,16 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
     );
   }, [drafts, rules]);
 
+  // Display-only mirror of the server's pricing: each line = unit price × combinations.
+  // The server recomputes every count and amount from the draw snapshot on submission.
   const unitPrice = rules ? ticketPriceToman(rules) : 0;
-  const subtotal = unitPrice * drafts.length;
+  const lineCombinations = rules ? drafts.map((d) => draftCombinationCount(d, rules)) : [];
+  const totalCombinations = lineCombinations.reduce((sum, c) => sum + c, 0);
+  const subtotal = unitPrice * totalCombinations;
+  const orderCap =
+    rules && game?.gameType === "SIX_CHANCE" ? sixChanceLimits(rules as SixChanceRules).maxCombinationsPerOrder : null;
+  const overOrderCap = orderCap !== null && totalCombinations > orderCap;
+  const summaryLines = drafts.map((d, i) => ({ key: d.key, index: i, combinations: lineCombinations[i] ?? 0 }));
 
   const opensCountdown = useCountdown(draw?.salesOpensAt ?? null);
   const cutoffCountdown = useCountdown(draw?.salesClosesAt ?? null);
@@ -141,16 +152,7 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const tickets = drafts.map((d) =>
-        d.kind === "FOUR_LEAF"
-          ? { isQuickPick: d.isQuickPick, ...(d.isQuickPick ? {} : { fourLeafNumber: d.fourLeafNumber }) }
-          : {
-              isQuickPick: d.isQuickPick,
-              ...(d.isQuickPick
-                ? {}
-                : { sixChanceNumbers: d.numbers as number[], sixChanceSymbol: d.symbol as number }),
-            },
-      );
+      const tickets = drafts.map(draftToTicketRequest);
       const createdOrder = await api.createOrder(
         { drawId: draw.id, guestEmail: token ? undefined : guestEmail, tickets },
         idempotencyKey,
@@ -254,10 +256,16 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
                   <TicketBuilder gameType={game.gameType} rules={rules} drafts={drafts} onChange={setDrafts} />
                 </section>
 
-                <OrderSummary count={drafts.length} unitPrice={unitPrice} total={subtotal}>
+                <OrderSummary
+                  lines={summaryLines}
+                  unitPrice={unitPrice}
+                  total={subtotal}
+                  totalCombinations={totalCombinations}
+                  orderCap={orderCap}
+                >
                   <button
                     type="button"
-                    disabled={!validDrafts || !salesOpen}
+                    disabled={!validDrafts || !salesOpen || overOrderCap}
                     onClick={goToCheckout}
                     className="btn btn-primary btn-lg w-full"
                   >
@@ -279,13 +287,22 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
                     {drafts.map((d, i) => (
                       <li key={d.key} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                         <span className="text-sm font-semibold text-ink-soft">{t.play.rowLabel(i + 1)}</span>
-                        {d.isQuickPick ? (
-                          <span className="badge badge-gold">
-                            {t.play.quickPick}
+                        <div className="flex flex-wrap items-center gap-3">
+                          {d.isQuickPick ? (
+                            <span className="badge badge-gold">
+                              {t.play.quickPick}
+                            </span>
+                          ) : (
+                            <SelectionDisplay
+                              selection={draftSelection(d)}
+                              size="sm"
+                              combinationCount={lineCombinations[i]}
+                            />
+                          )}
+                          <span className="tabular text-sm font-bold text-foreground">
+                            {money(unitPrice * (lineCombinations[i] ?? 0))}
                           </span>
-                        ) : (
-                          <SelectionDisplay selection={draftSelection(d)} size="sm" />
-                        )}
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -322,7 +339,13 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
                   {submitErrorText && <ErrorMessage message={submitErrorText} />}
                 </section>
 
-                <OrderSummary count={drafts.length} unitPrice={unitPrice} total={subtotal}>
+                <OrderSummary
+                  lines={summaryLines}
+                  unitPrice={unitPrice}
+                  total={subtotal}
+                  totalCombinations={totalCombinations}
+                  orderCap={orderCap}
+                >
                   <div className="flex flex-col gap-2.5">
                     <button
                       type="button"
@@ -395,13 +418,21 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
                           <StatusBadge kind="ticket" value={ticket.status} />
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <SelectionDisplay selection={ticket.selection} size="sm" />
+                          <SelectionDisplay
+                            selection={ticket.selection}
+                            size="sm"
+                            combinationCount={ticket.combinationCount}
+                          />
                           {ticket.isQuickPick && (
                             <span className="badge badge-gold">
                               {t.play.quickPick}
                             </span>
                           )}
                         </div>
+                        <p className="flex items-center justify-between text-sm">
+                          <span className="text-muted">{t.play.lineTotal}</span>
+                          <span className="tabular font-bold">{money(ticket.lineTotalToman)}</span>
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -428,35 +459,61 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
   );
 }
 
+/** Invoice-style summary: one row per line (its chances and line total), total chances,
+ * price per chance and the combined total. Amounts here are a live preview; the order the
+ * server creates is priced independently from the draw's rule snapshot. */
 function OrderSummary({
-  count,
+  lines,
   unitPrice,
   total,
+  totalCombinations,
+  orderCap,
   children,
 }: {
-  count: number;
+  lines: { key: string; index: number; combinations: number }[];
   unitPrice: number;
   total: number;
+  totalCombinations: number;
+  orderCap: number | null;
   children: React.ReactNode;
 }) {
   const { t, money, num } = useI18n();
+  const hasSystemLine = lines.some((l) => l.combinations > 1);
   return (
     <aside className="card card-pad flex flex-col gap-4 lg:sticky lg:top-24" aria-label={t.play.summaryTitle}>
       <h2 className="text-base font-bold">{t.play.summaryTitle}</h2>
-      <dl className="flex flex-col gap-2.5 text-sm">
+      <ul className="flex flex-col gap-2 text-sm">
+        {lines.map((l) => (
+          <li key={l.key} className="flex items-center justify-between gap-3">
+            <span className="min-w-0 text-muted">
+              {t.play.rowLabel(l.index + 1)}
+              {l.combinations > 1 && (
+                <span className="ms-1.5 text-xs font-semibold text-ocean-700">· {t.play.chances(l.combinations)}</span>
+              )}
+            </span>
+            <span className="tabular font-semibold">{l.combinations > 0 ? money(unitPrice * l.combinations) : "—"}</span>
+          </li>
+        ))}
+      </ul>
+      <dl className="flex flex-col gap-2.5 border-t border-border pt-3 text-sm">
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-muted">{t.play.pricePerTicket}</dt>
+          <dt className="text-muted">{hasSystemLine ? t.play.pricePerChance : t.play.pricePerTicket}</dt>
           <dd className="tabular font-semibold">{money(unitPrice)}</dd>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <dt className="text-muted">{t.play.ticketsLabel}</dt>
-          <dd className="tabular font-semibold">× {num(count)}</dd>
+          <dt className="text-muted">{hasSystemLine ? t.play.totalChances : t.play.ticketsLabel}</dt>
+          <dd className="tabular font-semibold">× {num(totalCombinations)}</dd>
         </div>
         <div className="mt-1 flex items-baseline justify-between gap-3 border-t border-dashed border-border-strong pt-3.5">
           <dt className="font-bold">{t.play.total}</dt>
           <dd className="tabular text-2xl font-extrabold text-brand">{money(total)}</dd>
         </div>
       </dl>
+      {orderCap !== null && totalCombinations > orderCap && (
+        <p className="rounded-md border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger" role="alert">
+          {t.play.orderTooLarge(totalCombinations, orderCap)}
+        </p>
+      )}
       {children}
     </aside>
   );
@@ -578,9 +635,10 @@ function GameBanner({
 }
 
 function draftSelection(d: TicketDraft): TicketSelection {
-  return d.kind === "FOUR_LEAF"
-    ? { kind: "FOUR_LEAF", numberValue: d.fourLeafNumber }
-    : { kind: "SIX_CHANCE", numbers: d.numbers as number[], symbol: d.symbol as number };
+  if (d.kind === "FOUR_LEAF") return { kind: "FOUR_LEAF", numberValue: d.fourLeafNumber };
+  return d.numbers.length === 6 && d.symbols.length === 1
+    ? { kind: "SIX_CHANCE", numbers: d.numbers, symbol: d.symbols[0] }
+    : { kind: "SIX_CHANCE_SYSTEM", numbers: d.numbers, symbols: d.symbols };
 }
 
 function makeEmptyDraft(gameType: "SIX_CHANCE" | "FOUR_LEAF", index: number): TicketDraft {

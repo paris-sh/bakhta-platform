@@ -6,13 +6,17 @@ import { generateClaimToken } from "./claim-token.js";
 
 export type TicketSelectionShape =
   | { kind: "FOUR_LEAF"; numberValue: string }
-  | { kind: "SIX_CHANCE"; numbers: number[]; symbol: number };
+  | { kind: "SIX_CHANCE"; numbers: number[]; symbol: number }
+  | { kind: "SIX_CHANCE_SYSTEM"; numbers: number[]; symbols: number[] };
 
 export interface NewTicketInput {
   isQuickPick: boolean;
+  /** Combinations this line covers (1 for Four Leaf / exact picks); prices the line. */
+  combinationCount: number;
   selection:
     | { gameType: "FOUR_LEAF"; numberValue: string }
-    | { gameType: "SIX_CHANCE"; numbers: [number, number, number, number, number, number]; symbol: number };
+    | { gameType: "SIX_CHANCE"; numbers: [number, number, number, number, number, number]; symbol: number }
+    | { gameType: "SIX_CHANCE_SYSTEM"; numbers: number[]; symbols: number[] };
 }
 
 export interface CreateOrderInput {
@@ -61,6 +65,13 @@ async function attachSelections<T extends { id: string; game_type: GameTypeEnum 
         .where("ticket_id", "in", sixChanceIds)
         .execute()
     : [];
+  const sixChanceSystemRows = sixChanceIds.length
+    ? await db
+        .selectFrom("six_chance_system_ticket_selections")
+        .select(["ticket_id", "numbers", "symbols"])
+        .where("ticket_id", "in", sixChanceIds)
+        .execute()
+    : [];
 
   const map = new Map<string, TicketSelectionShape>();
   for (const r of fourLeafRows) map.set(r.ticket_id, { kind: "FOUR_LEAF", numberValue: r.number_value });
@@ -70,6 +81,9 @@ async function attachSelections<T extends { id: string; game_type: GameTypeEnum 
       numbers: [r.n1, r.n2, r.n3, r.n4, r.n5, r.n6],
       symbol: r.symbol,
     });
+  }
+  for (const r of sixChanceSystemRows) {
+    map.set(r.ticket_id, { kind: "SIX_CHANCE_SYSTEM", numbers: r.numbers, symbols: r.symbols });
   }
 
   return tickets.map((t) => {
@@ -144,6 +158,8 @@ export function createOrdersRepository(db: Database) {
           "tickets.status as status",
           "tickets.outcome_status as outcome_status",
           "tickets.unit_price_toman as unit_price_toman",
+          "tickets.combination_count as combination_count",
+          "tickets.line_total_toman as line_total_toman",
           "draws.draw_number as draw_number",
           "draws.draw_at as draw_at",
           "draws.status as draw_status",
@@ -180,7 +196,12 @@ export function createOrdersRepository(db: Database) {
           if (now < draw.sales_opens_at) return { outcome: "sales_not_open_yet" as const };
           if (now > draw.sales_closes_at) return { outcome: "sales_closed" as const };
 
-          const subtotal = input.unitPriceToman * BigInt(input.tickets.length);
+          // Each line is charged unit price × its (server-computed) combination count; the
+          // same product is stored per ticket as the generated line_total_toman column.
+          const subtotal = input.tickets.reduce(
+            (sum, t) => sum + input.unitPriceToman * BigInt(t.combinationCount),
+            0n,
+          );
           const order = await trx
             .insertInto("orders")
             .values({
@@ -212,6 +233,7 @@ export function createOrdersRepository(db: Database) {
                 status: "PENDING",
                 outcome_status: "PENDING",
                 unit_price_toman: input.unitPriceToman.toString(),
+                combination_count: ticketInput.combinationCount,
                 rule_version_id: input.ruleVersionId,
                 is_quick_pick: ticketInput.isQuickPick,
               })
@@ -222,6 +244,16 @@ export function createOrdersRepository(db: Database) {
               await trx
                 .insertInto("four_leaf_ticket_selections")
                 .values({ ticket_id: ticket.id, number_value: ticketInput.selection.numberValue })
+                .execute();
+            } else if (ticketInput.selection.gameType === "SIX_CHANCE_SYSTEM") {
+              await trx
+                .insertInto("six_chance_system_ticket_selections")
+                .values({
+                  ticket_id: ticket.id,
+                  numbers: ticketInput.selection.numbers,
+                  symbols: ticketInput.selection.symbols,
+                  combination_count: ticketInput.combinationCount,
+                })
                 .execute();
             } else {
               const [n1, n2, n3, n4, n5, n6] = ticketInput.selection.numbers;

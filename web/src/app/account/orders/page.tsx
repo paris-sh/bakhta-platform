@@ -85,7 +85,7 @@ export default function MyOrdersPage() {
                       {ticket.publicCode}
                     </span>
                     <div className="flex flex-wrap items-center gap-3">
-                      <SelectionDisplay selection={ticket.selection} size="sm" />
+                      <SelectionDisplay selection={ticket.selection} size="sm" combinationCount={ticket.combinationCount} />
                       <StatusBadge kind="ticket" value={ticket.status} />
                     </div>
                   </li>
