@@ -29,6 +29,8 @@ export type ApiErrorReason =
   | "drawNotOpen"
   | "adminCannotOrder"
   | "noUpcomingDraw"
+  | "systemLineLimit"
+  | "systemOrderLimit"
   | "validation"
   | "unauthorized"
   | "forbidden"
@@ -148,11 +150,29 @@ const en = {
     quickPickHint: "Numbers will be picked at random when your order is placed.",
     fourLeafLabel: "Your four-digit number",
     fourLeafAria: "Four Leaf four-digit number",
-    sixNumbersLabel: (count: number, min: number, max: number) =>
-      `${count} numbers from ${min} to ${max}`,
+    numbersLabel: (required: number, max: number, lo: number, hi: number) =>
+      max > required
+        ? `Choose ${required}–${max} numbers from ${lo} to ${hi}`
+        : `Choose ${required} numbers from ${lo} to ${hi}`,
+    selectedOf: (n: number, max: number) => `${n} of ${max} selected`,
+    clearNumbers: "Clear",
+    symbolsHint: (max: number) => (max > 1 ? `Choose 1–${max}` : "Choose one"),
+    systemHint:
+      "Choose more than 6 numbers or more than one symbol to play a system: every six-number combination is played with every selected symbol.",
+    exactOnlyDraw: "This draw accepts exact picks only: 6 numbers and 1 symbol.",
+    systemBadge: "System",
+    chances: (n: number) => (n === 1 ? "1 chance" : `${n.toLocaleString("en-US")} chances`),
+    calcLine: (numbers: number, symbols: number, total: number) =>
+      `${numbers} numbers × ${symbols} ${symbols === 1 ? "symbol" : "symbols"} = ${total.toLocaleString("en-US")} ${total === 1 ? "chance" : "chances"}`,
+    calcDetail: (combos: number, symbols: number) =>
+      `${combos.toLocaleString("en-US")} six-number ${combos === 1 ? "combination" : "combinations"} × ${symbols} ${symbols === 1 ? "symbol" : "symbols"}`,
+    lineTotal: "Line total",
+    pricePerChance: "Price per chance",
+    totalChances: "Total chances",
+    orderTooLarge: (count: number, max: number) =>
+      `This order covers ${count.toLocaleString("en-US")} chances; the limit per order is ${max.toLocaleString("en-US")}.`,
     numberAria: (n: number) => `Number ${n}`,
     symbolLabel: "Chance symbol",
-    symbolHint: "Choose one",
     duplicateWarning:
       "This combination appears more than once in your order. That's allowed — each counts as a separate ticket.",
     summaryTitle: "Order summary",
@@ -182,12 +202,15 @@ const en = {
     number: "Number",
     numbers: "Numbers",
     symbol: "Chance symbol",
+    symbols: "Chance symbols",
   },
   validation: {
     fourLeafDigits: "Enter exactly 4 digits (leading zeros are fine).",
-    sixCount: (n: number) => `Choose all ${n} numbers.`,
-    sixRange: (min: number, max: number) => `Numbers must be between ${min} and ${max}.`,
-    sixDistinct: "Numbers must all be different.",
+    sixTooFew: (n: number) => `Choose at least ${n} numbers.`,
+    sixTooMany: (n: number) => `Choose at most ${n} numbers.`,
+    symbolTooMany: (n: number) => `Choose at most ${n} chance symbols.`,
+    lineTooLarge: (count: number, max: number) =>
+      `This line covers ${count.toLocaleString("en-US")} chances; the limit per line is ${max.toLocaleString("en-US")}.`,
     symbolMissing: "Choose a chance symbol.",
   },
   claim: {
@@ -304,6 +327,8 @@ const en = {
     drawNotOpen: "This draw isn't open for sales right now.",
     adminCannotOrder: "Admin accounts can't buy tickets.",
     noUpcomingDraw: "No draw is open for ticket sales right now.",
+    systemLineLimit: "One of your system lines covers more chances than this draw allows per line.",
+    systemOrderLimit: "Your order covers more chances than this draw allows per order.",
     validation: "Some of the details entered aren't valid. Please check and try again.",
     unauthorized: "Please sign in to continue.",
     forbidden: "You don't have permission to view this.",
@@ -434,10 +459,29 @@ const fa: Messages = {
     quickPickHint: "عددها هنگام ثبت سفارش به‌صورت تصادفی انتخاب می‌شوند.",
     fourLeafLabel: "عدد چهار رقمی شما",
     fourLeafAria: "عدد چهار رقمی چهار برگ",
-    sixNumbersLabel: (count: number, min: number, max: number) => `${faNum(count)} عدد بین ${faNum(min)} تا ${faNum(max)}`,
+    numbersLabel: (required: number, max: number, lo: number, hi: number) =>
+      max > required
+        ? `${faNum(required)} تا ${faNum(max)} عدد از ${faNum(lo)} تا ${faNum(hi)} انتخاب کنید`
+        : `${faNum(required)} عدد از ${faNum(lo)} تا ${faNum(hi)} انتخاب کنید`,
+    selectedOf: (n: number, max: number) => `${faNum(n)} از ${faNum(max)} انتخاب شده`,
+    clearNumbers: "پاک کردن",
+    symbolsHint: (max: number) => (max > 1 ? `۱ تا ${faNum(max)} نماد` : "یکی را انتخاب کنید"),
+    systemHint:
+      "برای بازی سیستمی بیش از ۶ عدد یا بیش از یک نماد انتخاب کنید: هر ترکیب شش‌تایی با هر نماد انتخاب‌شده بازی می‌شود.",
+    exactOnlyDraw: "این قرعه‌کشی فقط انتخاب دقیق را می‌پذیرد: ۶ عدد و ۱ نماد.",
+    systemBadge: "سیستمی",
+    chances: (n: number) => `${n.toLocaleString("fa-IR")} شانس`,
+    calcLine: (numbers: number, symbols: number, total: number) =>
+      `${faNum(numbers)} عدد × ${faNum(symbols)} نماد = ${total.toLocaleString("fa-IR")} شانس`,
+    calcDetail: (combos: number, symbols: number) =>
+      `${combos.toLocaleString("fa-IR")} ترکیب شش‌عددی × ${faNum(symbols)} نماد`,
+    lineTotal: "مبلغ این ردیف",
+    pricePerChance: "قیمت هر شانس",
+    totalChances: "مجموع شانس‌ها",
+    orderTooLarge: (count: number, max: number) =>
+      `این سفارش ${count.toLocaleString("fa-IR")} شانس دارد؛ سقف هر سفارش ${max.toLocaleString("fa-IR")} شانس است.`,
     numberAria: (n: number) => `عدد شمارهٔ ${faNum(n)}`,
     symbolLabel: "نماد شانس",
-    symbolHint: "یکی را انتخاب کنید",
     duplicateWarning:
       "این ترکیب بیش از یک بار در سفارش شما آمده است. این کار مجاز است و هر کدام یک بلیط جداگانه حساب می‌شود.",
     summaryTitle: "خلاصهٔ سفارش",
@@ -467,12 +511,15 @@ const fa: Messages = {
     number: "عدد",
     numbers: "عددها",
     symbol: "نماد شانس",
+    symbols: "نمادهای شانس",
   },
   validation: {
     fourLeafDigits: "دقیقاً ۴ رقم وارد کنید (صفر ابتدایی مجاز است).",
-    sixCount: (n: number) => `هر ${faNum(n)} عدد را انتخاب کنید.`,
-    sixRange: (min: number, max: number) => `عددها باید بین ${faNum(min)} تا ${faNum(max)} باشند.`,
-    sixDistinct: "عددها نباید تکراری باشند.",
+    sixTooFew: (n: number) => `دست‌کم ${faNum(n)} عدد انتخاب کنید.`,
+    sixTooMany: (n: number) => `حداکثر ${faNum(n)} عدد می‌توانید انتخاب کنید.`,
+    symbolTooMany: (n: number) => `حداکثر ${faNum(n)} نماد شانس می‌توانید انتخاب کنید.`,
+    lineTooLarge: (count: number, max: number) =>
+      `این ردیف ${count.toLocaleString("fa-IR")} شانس دارد؛ سقف هر ردیف ${max.toLocaleString("fa-IR")} شانس است.`,
     symbolMissing: "یک نماد شانس انتخاب کنید.",
   },
   claim: {
@@ -588,6 +635,8 @@ const fa: Messages = {
     drawNotOpen: "این قرعه‌کشی در حال حاضر برای فروش باز نیست.",
     adminCannotOrder: "حساب مدیریتی امکان خرید بلیط ندارد.",
     noUpcomingDraw: "در حال حاضر هیچ قرعه‌کشی‌ای با فروش باز وجود ندارد.",
+    systemLineLimit: "یکی از ردیف‌های سیستمی شما بیش از سقف مجاز هر ردیف در این قرعه‌کشی شانس دارد.",
+    systemOrderLimit: "سفارش شما بیش از سقف مجاز هر سفارش در این قرعه‌کشی شانس دارد.",
     validation: "برخی از اطلاعات واردشده معتبر نیست. لطفاً بررسی کنید و دوباره تلاش کنید.",
     unauthorized: "برای ادامه باید وارد حساب کاربری شوید.",
     forbidden: "اجازهٔ دسترسی به این بخش را ندارید.",

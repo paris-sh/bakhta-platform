@@ -1,14 +1,15 @@
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../shared/errors.js";
 import { resolveRulesValidator } from "../games/rules.schemas.js";
-import type { FourLeafRulesV1, SixChanceRulesV1 } from "../games/rules.schemas.js";
+import type { FourLeafRulesV1, SixChanceRules } from "../games/rules.schemas.js";
 import type { NewTicketInput, OrdersRepository, TicketSelectionShape } from "./orders.repository.js";
 import {
   fourLeafSelectionKey,
   generateFourLeafQuickPick,
   generateSixChanceQuickPick,
-  sixChanceSelectionKey,
+  sixChanceLimits,
+  sixChanceLinesOverlap,
   validateFourLeafSelection,
-  validateSixChanceSelection,
+  validateSixChanceLine,
 } from "./selections.js";
 
 export type Purchaser = { type: "USER"; userId: string } | { type: "GUEST" };
@@ -18,18 +19,39 @@ export interface RawTicketRequest {
   fourLeafNumber?: string | undefined;
   sixChanceNumbers?: number[] | undefined;
   sixChanceSymbol?: number | undefined;
+  sixChanceSymbols?: number[] | undefined;
 }
 
 function toSelectionResponse(selection: TicketSelectionShape) {
-  return selection.kind === "FOUR_LEAF"
-    ? { kind: "FOUR_LEAF" as const, numberValue: selection.numberValue }
-    : { kind: "SIX_CHANCE" as const, numbers: selection.numbers, symbol: selection.symbol };
+  switch (selection.kind) {
+    case "FOUR_LEAF":
+      return { kind: "FOUR_LEAF" as const, numberValue: selection.numberValue };
+    case "SIX_CHANCE":
+      return { kind: "SIX_CHANCE" as const, numbers: selection.numbers, symbol: selection.symbol };
+    case "SIX_CHANCE_SYSTEM":
+      return { kind: "SIX_CHANCE_SYSTEM" as const, numbers: selection.numbers, symbols: selection.symbols };
+  }
 }
 
-function selectionKeyOf(selection: TicketSelectionShape): string {
-  return selection.kind === "FOUR_LEAF"
-    ? fourLeafSelectionKey(selection.numberValue)
-    : sixChanceSelectionKey({ numbers: selection.numbers as never, symbol: selection.symbol });
+/** Number/symbol pools for any Six Chance selection (an exact pick is a 6×1 pool). */
+function sixChancePools(selection: TicketSelectionShape) {
+  if (selection.kind === "SIX_CHANCE") return { numbers: selection.numbers, symbols: [selection.symbol] };
+  if (selection.kind === "SIX_CHANCE_SYSTEM") return { numbers: selection.numbers, symbols: selection.symbols };
+  return null;
+}
+
+/** True when two lines of the same order would share at least one combination. */
+function selectionsOverlap(a: TicketSelectionShape, b: TicketSelectionShape): boolean {
+  if (a.kind === "FOUR_LEAF" || b.kind === "FOUR_LEAF") {
+    return (
+      a.kind === "FOUR_LEAF" &&
+      b.kind === "FOUR_LEAF" &&
+      fourLeafSelectionKey(a.numberValue) === fourLeafSelectionKey(b.numberValue)
+    );
+  }
+  const pa = sixChancePools(a);
+  const pb = sixChancePools(b);
+  return pa !== null && pb !== null && sixChanceLinesOverlap(pa, pb);
 }
 
 function toTicketShape(
@@ -40,6 +62,8 @@ function toTicketShape(
     status: string;
     outcome_status: string;
     unit_price_toman: string;
+    combination_count: number;
+    line_total_toman: string | null;
     is_quick_pick: boolean;
     owner_user_id: string | null;
     selection: TicketSelectionShape;
@@ -53,6 +77,8 @@ function toTicketShape(
     status: ticket.status,
     outcomeStatus: ticket.outcome_status,
     unitPriceToman: ticket.unit_price_toman,
+    combinationCount: ticket.combination_count,
+    lineTotalToman: ticket.line_total_toman ?? ticket.unit_price_toman,
     isQuickPick: ticket.is_quick_pick,
     ownerUserId: ticket.owner_user_id,
     selection: toSelectionResponse(ticket.selection),
@@ -60,13 +86,14 @@ function toTicketShape(
   };
 }
 
+/** Flags every line that shares at least one combination with another line of the same
+ * order (identical picks, or overlapping system pools). Informational only — overlapping
+ * lines are allowed by policy. Orders are capped at 50 lines, so pairwise is fine. */
 function markDuplicates<T extends { selection: TicketSelectionShape }>(tickets: T[]) {
-  const counts = new Map<string, number>();
-  for (const t of tickets) {
-    const key = selectionKeyOf(t.selection);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return tickets.map((t) => ({ ticket: t, duplicate: (counts.get(selectionKeyOf(t.selection)) ?? 0) > 1 }));
+  return tickets.map((t, i) => ({
+    ticket: t,
+    duplicate: tickets.some((other, j) => j !== i && selectionsOverlap(t.selection, other.selection)),
+  }));
 }
 
 function toOrderShape(
@@ -155,11 +182,23 @@ export function createOrdersService(repo: OrdersRepository) {
       const preparedTickets: NewTicketInput[] = input.tickets.map((t) =>
         draw.game_type === "FOUR_LEAF"
           ? prepareFourLeafTicket(t, rules as FourLeafRulesV1)
-          : prepareSixChanceTicket(t, rules as SixChanceRulesV1),
+          : prepareSixChanceTicket(t, rules as SixChanceRules),
       );
 
+      if (draw.game_type === "SIX_CHANCE") {
+        const orderCap = sixChanceLimits(rules as SixChanceRules).maxCombinationsPerOrder;
+        const totalCombinations = preparedTickets.reduce((sum, t) => sum + t.combinationCount, 0);
+        if (orderCap !== null && totalCombinations > orderCap) {
+          throw new ValidationError(
+            `This order covers ${totalCombinations} combinations; the limit per order is ${orderCap}.`,
+          );
+        }
+      }
+
+      // The per-combination price always comes from the draw's snapshotted rule version;
+      // line and order totals are computed from it server-side (never from the request).
       const unitPriceToman = BigInt(
-        (rules as FourLeafRulesV1 | SixChanceRulesV1).ticket_price_toman,
+        (rules as FourLeafRulesV1 | SixChanceRules).ticket_price_toman,
       );
 
       const result = await repo.createOrderWithTickets({
@@ -225,6 +264,8 @@ export function createOrdersService(repo: OrdersRepository) {
         drawStatus: ticket.draw_status,
         selection: toSelectionResponse(ticket.selection),
         unitPriceToman: ticket.unit_price_toman,
+        combinationCount: ticket.combination_count,
+        lineTotalToman: ticket.line_total_toman ?? ticket.unit_price_toman,
         status: ticket.status,
         outcomeStatus: ticket.outcome_status,
       };
@@ -264,26 +305,40 @@ export function createOrdersService(repo: OrdersRepository) {
 }
 
 function prepareFourLeafTicket(t: RawTicketRequest, rules: FourLeafRulesV1): NewTicketInput {
-  if (t.sixChanceNumbers !== undefined || t.sixChanceSymbol !== undefined) {
+  if (t.sixChanceNumbers !== undefined || t.sixChanceSymbol !== undefined || t.sixChanceSymbols !== undefined) {
     throw new ValidationError("This draw is FOUR_LEAF; do not supply sixChanceNumbers/sixChanceSymbol.");
   }
   const numberValue = t.isQuickPick
     ? generateFourLeafQuickPick()
     : validateFourLeafSelection(rules, t.fourLeafNumber);
-  return { isQuickPick: t.isQuickPick, selection: { gameType: "FOUR_LEAF", numberValue } };
+  return { isQuickPick: t.isQuickPick, combinationCount: 1, selection: { gameType: "FOUR_LEAF", numberValue } };
 }
 
-function prepareSixChanceTicket(t: RawTicketRequest, rules: SixChanceRulesV1): NewTicketInput {
+function prepareSixChanceTicket(t: RawTicketRequest, rules: SixChanceRules): NewTicketInput {
   if (t.fourLeafNumber !== undefined) {
     throw new ValidationError("This draw is SIX_CHANCE; do not supply fourLeafNumber.");
   }
-  const selection = t.isQuickPick
-    ? generateSixChanceQuickPick(rules)
-    : validateSixChanceSelection(rules, t.sixChanceNumbers, t.sixChanceSymbol);
-  return {
-    isQuickPick: t.isQuickPick,
-    selection: { gameType: "SIX_CHANCE", numbers: selection.numbers, symbol: selection.symbol },
-  };
+  if (t.isQuickPick) {
+    // Quick Pick remains an exact pick (6 numbers + 1 server-chosen symbol).
+    const pick = generateSixChanceQuickPick(rules);
+    return {
+      isQuickPick: true,
+      combinationCount: 1,
+      selection: { gameType: "SIX_CHANCE", numbers: pick.numbers, symbol: pick.symbol },
+    };
+  }
+  const line = validateSixChanceLine(rules, t.sixChanceNumbers, t.sixChanceSymbol, t.sixChanceSymbols);
+  return line.kind === "EXACT"
+    ? {
+        isQuickPick: false,
+        combinationCount: 1,
+        selection: { gameType: "SIX_CHANCE", numbers: line.numbers, symbol: line.symbol },
+      }
+    : {
+        isQuickPick: false,
+        combinationCount: line.combinationCount,
+        selection: { gameType: "SIX_CHANCE_SYSTEM", numbers: line.numbers, symbols: line.symbols },
+      };
 }
 
 export type OrdersService = ReturnType<typeof createOrdersService>;

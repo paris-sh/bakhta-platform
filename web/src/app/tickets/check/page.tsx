@@ -95,7 +95,7 @@ export default function TicketCheckPage() {
           </div>
           <dl className="grid gap-x-6 gap-y-4 p-6 sm:grid-cols-2">
             <Row label={t.check.selection} wide>
-              <SelectionDisplay selection={result.selection} />
+              <SelectionDisplay selection={result.selection} combinationCount={result.combinationCount} />
             </Row>
             <Row label={t.check.drawNumber}>{digits(result.drawNumber)}</Row>
             <Row label={t.check.drawTime}>
@@ -104,8 +104,13 @@ export default function TicketCheckPage() {
             <Row label={t.check.drawStatus}>
               <StatusBadge kind="draw" value={result.drawStatus} />
             </Row>
-            <Row label={t.check.price}>
-              <span className="tabular">{money(result.unitPriceToman)}</span>
+            <Row label={result.combinationCount > 1 ? t.play.lineTotal : t.check.price}>
+              <span className="tabular">{money(result.lineTotalToman)}</span>
+              {result.combinationCount > 1 && (
+                <span className="tabular block text-xs font-normal text-muted">
+                  {t.play.chances(result.combinationCount)} × {money(result.unitPriceToman)}
+                </span>
+              )}
             </Row>
             <Row label={t.check.ticketStatus}>
               <StatusBadge kind="ticket" value={result.status} />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { chanceSymbol, type ChanceSymbol as ChanceSymbolT, type ChanceSymbolKey } from "@/lib/chance-symbols";
 import { useI18n } from "@/lib/i18n/locale-context";
 import { CheckIcon } from "./icons";
@@ -91,30 +91,47 @@ export function ChanceSymbolBadge({
   );
 }
 
-/** Radio group for choosing the chance symbol: arrow keys move and select (mirrored in
- * RTL), Home/End jump, and only the selected (or first) option is in the tab order. */
+/** Chance-symbol picker. With `max` 1 it is a radio group (choose exactly one — arrow keys
+ * move and select). With `max` > 1 it is a group of toggle buttons (system play — arrow keys
+ * move focus, Space/Enter toggles; unselected options lock once `max` is reached). Either
+ * way, arrows are mirrored in RTL, Home/End jump, and only one option is in the tab order.
+ * Values are the symbols' integer ids (1–5) — the API representation. */
 export function ChanceSymbolPicker({
   symbols,
-  value,
+  values,
+  max,
   onChange,
   labelledBy,
   invalid,
 }: {
   symbols: ChanceSymbolT[];
-  value: number | null;
-  onChange: (id: number) => void;
+  values: number[];
+  max: number;
+  onChange: (ids: number[]) => void;
   labelledBy: string;
   invalid?: boolean;
 }) {
   const { locale, dir } = useI18n();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
-  const selectedIndex = symbols.findIndex((s) => s.id === value);
-  const focusIndex = selectedIndex >= 0 ? selectedIndex : 0;
+  const multi = max > 1;
+  const firstSelected = symbols.findIndex((s) => values.includes(s.id));
+  const [focusIndex, setFocusIndex] = useState(firstSelected >= 0 ? firstSelected : 0);
+  const atMax = values.length >= max;
 
-  function move(from: number, delta: number) {
-    const next = (from + delta + symbols.length) % symbols.length;
-    onChange(symbols[next].id);
+  function toggle(id: number) {
+    if (!multi) {
+      onChange([id]);
+      return;
+    }
+    if (values.includes(id)) onChange(values.filter((v) => v !== id));
+    else if (!atMax) onChange([...values, id].sort((a, b) => a - b));
+  }
+
+  function focusAt(index: number) {
+    const next = (index + symbols.length) % symbols.length;
+    setFocusIndex(next);
     refs.current[next]?.focus();
+    if (!multi) onChange([symbols[next].id]);
   }
 
   function onKeyDown(e: React.KeyboardEvent, index: number) {
@@ -122,28 +139,29 @@ export function ChanceSymbolPicker({
     const backward = dir === "rtl" ? "ArrowRight" : "ArrowLeft";
     if (e.key === forward || e.key === "ArrowDown") {
       e.preventDefault();
-      move(index, 1);
+      focusAt(index + 1);
     } else if (e.key === backward || e.key === "ArrowUp") {
       e.preventDefault();
-      move(index, -1);
+      focusAt(index - 1);
     } else if (e.key === "Home") {
       e.preventDefault();
-      move(0, 0);
+      focusAt(0);
     } else if (e.key === "End") {
       e.preventDefault();
-      move(symbols.length - 1, 0);
+      focusAt(symbols.length - 1);
     }
   }
 
   return (
     <div
-      role="radiogroup"
+      role={multi ? "group" : "radiogroup"}
       aria-labelledby={labelledBy}
       aria-invalid={invalid || undefined}
       className="grid grid-cols-5 gap-2 sm:flex sm:flex-wrap"
     >
       {symbols.map((s, i) => {
-        const checked = s.id === value;
+        const checked = values.includes(s.id);
+        const locked = multi && atMax && !checked;
         return (
           <button
             key={s.id}
@@ -151,13 +169,20 @@ export function ChanceSymbolPicker({
               refs.current[i] = el;
             }}
             type="button"
-            role="radio"
-            aria-checked={checked}
+            role={multi ? undefined : "radio"}
+            aria-checked={multi ? undefined : checked}
+            aria-pressed={multi ? checked : undefined}
+            aria-disabled={locked || undefined}
             tabIndex={i === focusIndex ? 0 : -1}
-            onClick={() => onChange(s.id)}
+            onFocus={() => setFocusIndex(i)}
+            onClick={() => toggle(s.id)}
             onKeyDown={(e) => onKeyDown(e, i)}
-            className={`group/sym relative flex min-h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-lg border-2 px-1.5 py-2 text-xs font-semibold transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out-soft hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:hover:translate-y-0 sm:w-[5.5rem] ${
-              checked ? "shadow-md" : "border-border bg-surface text-ink-soft hover:border-border-strong"
+            className={`group/sym relative flex min-h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-lg border-2 px-1.5 py-2 text-xs font-semibold transition-[transform,box-shadow,border-color,background-color,opacity] duration-200 ease-out-soft focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-[5.5rem] ${
+              checked
+                ? "shadow-md"
+                : locked
+                  ? "cursor-not-allowed border-border bg-surface text-muted opacity-45"
+                  : "border-border bg-surface text-ink-soft hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md motion-reduce:hover:translate-y-0"
             }`}
             style={
               checked

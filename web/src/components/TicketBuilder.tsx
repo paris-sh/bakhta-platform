@@ -1,17 +1,19 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useRef, useState } from "react";
 import {
-  draftSelectionKey,
+  draftCombinationCount,
+  overlappingDraftIndexes,
   validateFourLeafDraft,
   validateSixChanceDraft,
   type SelectionError,
 } from "@/lib/selection";
+import { binomial, sixChanceLimits, systemPlayEnabled } from "@/lib/six-chance";
 import { digitsOnly } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/locale-context";
 import type { Messages } from "@/lib/i18n/messages";
 import type { FourLeafRules, SixChanceRules, TicketDraft } from "@/lib/types";
-import { AlertIcon, SparkleIcon, TrashIcon } from "./icons";
+import { AlertIcon, InfoIcon, SparkleIcon, TrashIcon } from "./icons";
 import { ChanceSymbolPicker } from "./ChanceSymbol";
 import { symbolsInRange } from "@/lib/chance-symbols";
 
@@ -22,33 +24,27 @@ interface Props {
   onChange: (drafts: TicketDraft[]) => void;
 }
 
+type SixDraft = Extract<TicketDraft, { kind: "SIX_CHANCE" }>;
+
 export function selectionErrorText(error: SelectionError, t: Messages): string {
   switch (error.kind) {
     case "fourLeafDigits":
       return t.validation.fourLeafDigits;
-    case "sixCount":
-      return t.validation.sixCount(error.count);
-    case "sixRange":
-      return t.validation.sixRange(error.min, error.max);
-    case "sixDistinct":
-      return t.validation.sixDistinct;
+    case "sixTooFew":
+      return t.validation.sixTooFew(error.required);
+    case "sixTooMany":
+      return t.validation.sixTooMany(error.max);
     case "symbolMissing":
       return t.validation.symbolMissing;
+    case "symbolTooMany":
+      return t.validation.symbolTooMany(error.max);
+    case "lineTooLarge":
+      return t.validation.lineTooLarge(error.count, error.max);
   }
-}
-
-function countDuplicates(drafts: TicketDraft[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const draft of drafts) {
-    const key = draftSelectionKey(draft);
-    if (!key) continue;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
 }
 
 export function TicketBuilder({ gameType, rules, drafts, onChange }: Props) {
-  const duplicateCounts = countDuplicates(drafts);
+  const overlapping = overlappingDraftIndexes(drafts);
 
   function updateDraft(index: number, next: TicketDraft) {
     onChange(drafts.map((d, i) => (i === index ? next : d)));
@@ -61,15 +57,10 @@ export function TicketBuilder({ gameType, rules, drafts, onChange }: Props) {
   return (
     <div className="flex flex-col gap-3">
       {drafts.map((draft, index) => {
-        const key = draftSelectionKey(draft);
-        const isDuplicate = key !== null && (duplicateCounts.get(key) ?? 0) > 1;
         const error =
           gameType === "FOUR_LEAF"
             ? validateFourLeafDraft(draft as Extract<TicketDraft, { kind: "FOUR_LEAF" }>)
-            : validateSixChanceDraft(
-                draft as Extract<TicketDraft, { kind: "SIX_CHANCE" }>,
-                rules as SixChanceRules,
-              );
+            : validateSixChanceDraft(draft as SixDraft, rules as SixChanceRules);
 
         return (
           <TicketRow
@@ -78,7 +69,7 @@ export function TicketBuilder({ gameType, rules, drafts, onChange }: Props) {
             draft={draft}
             rules={rules}
             error={error}
-            isDuplicate={isDuplicate}
+            isDuplicate={overlapping.has(index)}
             onChange={(next) => updateDraft(index, next)}
             onRemove={() => removeDraft(index)}
             canRemove={drafts.length > 1}
@@ -94,7 +85,7 @@ export function TicketBuilder({ gameType, rules, drafts, onChange }: Props) {
 function isUntouched(draft: TicketDraft): boolean {
   return draft.kind === "FOUR_LEAF"
     ? draft.fourLeafNumber === ""
-    : draft.numbers.every((n) => n === null) && draft.symbol === null;
+    : draft.numbers.length === 0 && draft.symbols.length === 0;
 }
 
 function TicketRow({
@@ -120,17 +111,20 @@ function TicketRow({
   const quickPickId = useId();
   const errorId = useId();
   const showError = error !== null && !draft.isQuickPick && !isUntouched(draft);
+  const combos = draftCombinationCount(draft, rules);
+  const isSystem = draft.kind === "SIX_CHANCE" && !draft.isQuickPick && error === null && combos > 1;
 
   return (
     <div
       className={`animate-fade-up flex flex-col gap-4 rounded-xl border bg-surface p-4 shadow-xs transition-colors duration-200 sm:p-5 ${
-        showError ? "border-danger-border" : "border-border"
+        showError ? "border-danger-border" : isSystem ? "border-ocean-300" : "border-border"
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="flex items-center gap-2 font-bold text-foreground">
           <span className="h-2 w-2 rounded-full bg-brand" aria-hidden="true" />
           {t.play.rowLabel(index + 1)}
+          {isSystem && <span className="badge badge-brand">{t.play.systemBadge}</span>}
         </span>
         <div className="flex items-center gap-2">
           <label
@@ -184,10 +178,10 @@ function TicketRow({
 
       {!draft.isQuickPick && draft.kind === "SIX_CHANCE" && (
         <SixChanceInput
-          numbers={draft.numbers}
-          symbol={draft.symbol}
+          draft={draft}
           rules={rules as SixChanceRules}
-          onChange={(numbers, symbol) => onChange({ ...draft, numbers, symbol })}
+          valid={error === null}
+          onChange={(numbers, symbols) => onChange({ ...draft, numbers, symbols })}
         />
       )}
 
@@ -246,68 +240,231 @@ function FourLeafInput({
 }
 
 function SixChanceInput({
-  numbers,
-  symbol,
+  draft,
   rules,
+  valid,
   onChange,
 }: {
-  numbers: (number | null)[];
-  symbol: number | null;
+  draft: SixDraft;
   rules: SixChanceRules;
-  onChange: (numbers: (number | null)[], symbol: number | null) => void;
+  valid: boolean;
+  onChange: (numbers: number[], symbols: number[]) => void;
 }) {
   const { t, digits } = useI18n();
   const { min, max } = rules.selection.main_numbers;
   const symbolRange = rules.selection.chance_symbol;
+  const limits = sixChanceLimits(rules);
+  const numbersLabelId = useId();
   const symbolLabelId = useId();
 
-  function setNumber(i: number, raw: string) {
-    const d = digitsOnly(raw).slice(0, 2);
-    const parsed = d === "" ? null : Number(d);
-    onChange(
-      numbers.map((n, idx) => (idx === i ? parsed : n)),
-      symbol,
-    );
-  }
+  const numberAtMax = draft.numbers.length >= limits.maxNumbersPerLine;
 
-  const ball =
-    "tabular aspect-square w-full max-w-12 rounded-full border text-center text-lg font-bold sm:h-13 sm:w-13 sm:max-w-none transition-[border-color,box-shadow,background-color] duration-150 focus:outline-none focus:shadow-[var(--ring)]";
+  function toggleNumber(n: number) {
+    if (draft.numbers.includes(n)) {
+      onChange(
+        draft.numbers.filter((x) => x !== n),
+        draft.symbols,
+      );
+    } else if (!numberAtMax) {
+      onChange([...draft.numbers, n].sort((a, b) => a - b), draft.symbols);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <p className="field-label">{t.play.sixNumbersLabel(numbers.length, min, max)}</p>
-        <div className="grid grid-cols-6 gap-1.5 sm:flex sm:gap-2">
-          {numbers.map((n, i) => (
-            <input
-              key={i}
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={n === null ? "" : digits(n)}
-              onChange={(e) => setNumber(i, e.target.value)}
-              className={`${ball} ${
-                n === null
-                  ? "border-border-strong bg-surface-muted text-foreground"
-                  : "border-ocean-300 bg-ocean-50 text-ocean-700"
-              } focus:border-ocean-500`}
-              aria-label={t.play.numberAria(i + 1)}
-            />
-          ))}
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p id={numbersLabelId} className="field-label mb-0">
+            {t.play.numbersLabel(limits.requiredNumbers, limits.maxNumbersPerLine, min, max)}
+          </p>
+          <div className="flex items-center gap-2">
+            <span className={`badge ${draft.numbers.length >= limits.requiredNumbers ? "badge-brand" : "badge-neutral"}`}>
+              {t.play.selectedOf(draft.numbers.length, limits.maxNumbersPerLine)}
+            </span>
+            {draft.numbers.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm min-h-8 px-2 text-xs"
+                onClick={() => onChange([], draft.symbols)}
+              >
+                {t.play.clearNumbers}
+              </button>
+            )}
+          </div>
         </div>
+        <NumberGrid
+          min={min}
+          max={max}
+          selected={draft.numbers}
+          locked={numberAtMax}
+          labelledBy={numbersLabelId}
+          onToggle={toggleNumber}
+          numberLabel={(n) => digits(n)}
+        />
       </div>
+
       <div>
         <p id={symbolLabelId} className="field-label">
-          {t.play.symbolLabel} <span className="font-normal text-muted">· {t.play.symbolHint}</span>
+          {t.play.symbolLabel}{" "}
+          <span className="font-normal text-muted">· {t.play.symbolsHint(limits.maxSymbolsPerLine)}</span>
         </p>
-        {/* Selecting a symbol stores its integer id (1–5) — the API representation. */}
+        {/* Selecting symbols stores their integer ids (1–5) — the API representation. */}
         <ChanceSymbolPicker
           symbols={symbolsInRange(symbolRange.min, symbolRange.max)}
-          value={symbol}
-          onChange={(id) => onChange(numbers, id)}
+          values={draft.symbols}
+          max={limits.maxSymbolsPerLine}
+          onChange={(ids) => onChange(draft.numbers, ids)}
           labelledBy={symbolLabelId}
         />
       </div>
+
+      <LineCalculation draft={draft} rules={rules} valid={valid} />
+    </div>
+  );
+}
+
+/** Live "numbers × symbols = chances" and price for one line. Display only — the server
+ * recomputes both when the order is placed. */
+function LineCalculation({ draft, rules, valid }: { draft: SixDraft; rules: SixChanceRules; valid: boolean }) {
+  const { t, money } = useI18n();
+  const limits = sixChanceLimits(rules);
+  const complete = draft.numbers.length >= limits.requiredNumbers && draft.symbols.length > 0;
+
+  if (!systemPlayEnabled(limits)) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted">
+        <InfoIcon className="h-4 w-4 shrink-0" />
+        {t.play.exactOnlyDraw}
+      </p>
+    );
+  }
+
+  if (!complete) {
+    return (
+      <p className="flex items-start gap-2 rounded-lg bg-background px-4 py-3 text-sm text-muted">
+        <InfoIcon className="mt-0.5 h-4 w-4 shrink-0" />
+        {t.play.systemHint}
+      </p>
+    );
+  }
+
+  const combosPerSymbol = binomial(draft.numbers.length, limits.requiredNumbers);
+  const total = combosPerSymbol * draft.symbols.length;
+  const unit = rules.ticket_price_toman;
+
+  return (
+    <div
+      className={`flex flex-col gap-2 rounded-lg border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${
+        valid ? "border-ocean-300/60 bg-ocean-50" : "border-danger-border bg-danger-bg"
+      }`}
+      aria-live="polite"
+    >
+      <div className="min-w-0">
+        <p className="tabular font-bold text-ocean-700">
+          {t.play.calcLine(draft.numbers.length, draft.symbols.length, total)}
+        </p>
+        <p className="tabular mt-0.5 text-xs text-muted">
+          {t.play.calcDetail(combosPerSymbol, draft.symbols.length)} · {t.play.pricePerChance} {money(unit)}
+        </p>
+      </div>
+      <div className="shrink-0 sm:text-end">
+        <p className="text-xs font-semibold text-muted">{t.play.lineTotal}</p>
+        <p className="tabular text-lg font-extrabold text-foreground">{money(unit * total)}</p>
+      </div>
+    </div>
+  );
+}
+
+/** 1–33 as toggleable balls. One roving tab stop: arrows move (mirrored in RTL), Up/Down
+ * move a row, Home/End jump; Space/Enter toggles. Once the per-line maximum is reached,
+ * unselected balls lock. */
+function NumberGrid({
+  min,
+  max,
+  selected,
+  locked,
+  labelledBy,
+  onToggle,
+  numberLabel,
+}: {
+  min: number;
+  max: number;
+  selected: number[];
+  locked: boolean;
+  labelledBy: string;
+  onToggle: (n: number) => void;
+  numberLabel: (n: number) => string;
+}) {
+  const { dir } = useI18n();
+  const values = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [focusIndex, setFocusIndex] = useState(0);
+
+  function columns(): number {
+    const first = refs.current[0];
+    if (!first) return 1;
+    const top = first.offsetTop;
+    let count = 0;
+    for (const el of refs.current) {
+      if (el && el.offsetTop === top) count += 1;
+      else break;
+    }
+    return Math.max(count, 1);
+  }
+
+  function focusAt(index: number) {
+    const clamped = Math.min(Math.max(index, 0), values.length - 1);
+    setFocusIndex(clamped);
+    refs.current[clamped]?.focus();
+  }
+
+  function onKeyDown(e: React.KeyboardEvent, index: number) {
+    const forward = dir === "rtl" ? "ArrowLeft" : "ArrowRight";
+    const backward = dir === "rtl" ? "ArrowRight" : "ArrowLeft";
+    const moves: Record<string, number> = {
+      [forward]: index + 1,
+      [backward]: index - 1,
+      ArrowDown: index + columns(),
+      ArrowUp: index - columns(),
+      Home: 0,
+      End: values.length - 1,
+    };
+    if (e.key in moves) {
+      e.preventDefault();
+      focusAt(moves[e.key]);
+    }
+  }
+
+  return (
+    <div role="group" aria-labelledby={labelledBy} className="grid grid-cols-7 gap-1.5 sm:grid-cols-11 sm:gap-2">
+      {values.map((n, i) => {
+        const on = selected.includes(n);
+        const disabled = locked && !on;
+        return (
+          <button
+            key={n}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            aria-pressed={on}
+            aria-disabled={disabled || undefined}
+            tabIndex={i === focusIndex ? 0 : -1}
+            onFocus={() => setFocusIndex(i)}
+            onClick={() => onToggle(n)}
+            onKeyDown={(e) => onKeyDown(e, i)}
+            className={`tabular aspect-square w-full rounded-full border text-base font-bold transition-[transform,background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ocean-500 sm:text-lg ${
+              on
+                ? "scale-[1.03] border-ocean-700 bg-ocean-700 text-white shadow-md"
+                : disabled
+                  ? "cursor-not-allowed border-border bg-surface-muted text-muted opacity-45"
+                  : "border-border-strong bg-surface text-foreground hover:-translate-y-0.5 hover:border-ocean-500 hover:bg-ocean-50 motion-reduce:hover:translate-y-0"
+            }`}
+          >
+            {numberLabel(n)}
+          </button>
+        );
+      })}
     </div>
   );
 }

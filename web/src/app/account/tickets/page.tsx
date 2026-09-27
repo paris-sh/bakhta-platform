@@ -69,11 +69,15 @@ export default function MyTicketsPage() {
               </div>
             </div>
             <div className="border-t border-dashed border-border-strong pt-4">
-              <SelectionDisplay selection={ticket.selection} />
+              <SelectionDisplay selection={ticket.selection} combinationCount={ticket.combinationCount} />
             </div>
             <p className="flex items-center justify-between text-sm">
-              <span className="text-muted">{t.tickets.price}</span>
-              <span className="tabular font-bold text-brand">{money(ticket.unitPriceToman)}</span>
+              <span className="text-muted">
+                {ticket.combinationCount > 1
+                  ? `${t.play.lineTotal} · ${t.play.chances(ticket.combinationCount)} × ${money(ticket.unitPriceToman)}`
+                  : t.tickets.price}
+              </span>
+              <span className="tabular font-bold text-brand">{money(ticket.lineTotalToman)}</span>
             </p>
           </article>
         ))}

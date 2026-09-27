@@ -109,6 +109,55 @@ BEGIN
   END IF;
 
   -- ------------------------------------------------------------------
+  -- Six Chance rule schema_version 2: system play (migration 0037)
+  -- ------------------------------------------------------------------
+  -- Built from the CURRENTLY ACTIVE Six Chance rules (tiers, schedule, jackpot settings carry
+  -- over), with the final system-play defaults below — including the per-combination price —
+  -- as the next version_number, then activated, retiring the previous active version exactly
+  -- like the admin activation endpoint does. Draws already created keep their own snapshot (a v1
+  -- draw stays exact-pick only); draws generated afterwards snapshot this version.
+  -- Idempotent: skipped once any Six Chance rule version with schema_version >= 2 exists.
+  IF NOT EXISTS (
+    SELECT 1 FROM game_rule_versions
+    WHERE game_id = v_six_chance_game_id AND (rules ->> 'schema_version')::int >= 2
+  ) THEN
+    SELECT rules INTO v_six_chance_rules
+    FROM game_rule_versions
+    WHERE game_id = v_six_chance_game_id AND status = 'ACTIVE';
+
+    v_six_chance_rules := jsonb_set(v_six_chance_rules, '{schema_version}', to_jsonb(2));
+    -- Final default price of ONE combination (a system line costs price × combinations).
+    v_six_chance_rules := jsonb_set(v_six_chance_rules, '{ticket_price_toman}', to_jsonb(100000));
+    v_six_chance_rules := jsonb_set(
+      v_six_chance_rules, '{selection}',
+      (v_six_chance_rules -> 'selection') || jsonb_build_object(
+        'required_numbers_per_combination', 6,
+        'maximum_selected_numbers_per_line', 12,
+        'maximum_selected_symbols_per_line', 5,
+        -- The largest line the pool limits allow is C(12,6) × 5 = 4620, so every line within
+        -- 12 numbers and 5 symbols fits under the per-line cap.
+        'maximum_combinations_per_line', 5000,
+        'maximum_combinations_per_order', 25000
+      )
+    );
+
+    UPDATE game_rule_versions
+    SET status = 'RETIRED', retired_at = now()
+    WHERE game_id = v_six_chance_game_id AND status = 'ACTIVE';
+
+    INSERT INTO game_rule_versions (
+      game_id, game_type, version_number, status, rules, rules_hash,
+      change_reason, created_by, activated_by, activated_at
+    ) VALUES (
+      v_six_chance_game_id, 'SIX_CHANCE',
+      (SELECT max(version_number) + 1 FROM game_rule_versions WHERE game_id = v_six_chance_game_id),
+      'ACTIVE', v_six_chance_rules, digest(v_six_chance_rules::text, 'sha256'),
+      'Six Chance system play: rule schema_version 2 with system-play limits (migration 0037).',
+      v_bootstrap_admin_id, v_bootstrap_admin_id, now()
+    );
+  END IF;
+
+  -- ------------------------------------------------------------------
   -- Four Leaf default rule version
   -- ------------------------------------------------------------------
 

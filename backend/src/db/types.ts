@@ -524,6 +524,16 @@ export interface SixChanceResults {
   symbol: number;
 }
 
+export interface SixChanceSystemTicketSelections {
+  combination_count: number;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  numbers: number[];
+  symbols: number[];
+  ticket_game_type: Generated<GameTypeEnum>;
+  ticket_id: string;
+}
+
 export interface SixChanceTicketSelections {
   created_at: Generated<Timestamp>;
   id: Generated<string>;
@@ -580,12 +590,20 @@ export interface TicketOwnershipHistory {
 }
 
 export interface Tickets {
+  /**
+   * Number of (6 numbers, 1 symbol) combinations this line covers: 1 for Four Leaf and exact Six Chance picks; C(n,6)×symbols for a Six Chance system line.
+   */
+  combination_count: Generated<number>;
   created_at: Generated<Timestamp>;
   draw_id: string;
   game_type: GameTypeEnum;
   id: Generated<string>;
   is_quick_pick: Generated<boolean>;
   line_number: number;
+  /**
+   * Generated: unit_price_toman × combination_count — the amount this line contributes to its order.
+   */
+  line_total_toman: Generated<Int8 | null>;
   order_id: string;
   outcome_status: Generated<TicketOutcomeEnum>;
   /**
@@ -596,6 +614,9 @@ export interface Tickets {
   rule_version_id: string;
   source: Generated<TicketSourceEnum>;
   status: Generated<TicketStatusEnum>;
+  /**
+   * Price of ONE combination, snapshotted from the draw's rule version at purchase time.
+   */
   unit_price_toman: Int8;
   updated_at: Generated<Timestamp>;
 }
@@ -655,6 +676,7 @@ export interface DB {
   roles: Roles;
   sessions: Sessions;
   six_chance_results: SixChanceResults;
+  six_chance_system_ticket_selections: SixChanceSystemTicketSelections;
   six_chance_ticket_selections: SixChanceTicketSelections;
   support_messages: SupportMessages;
   support_tickets: SupportTickets;

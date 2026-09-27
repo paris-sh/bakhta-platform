@@ -55,8 +55,16 @@ const CODE_REASON: Record<string, ApiErrorReason> = {
   INTERNAL_ERROR: "server",
 };
 
+// Messages that embed live numbers (limits from the draw's rule snapshot) match by pattern.
+const SERVER_MESSAGE_PATTERN_REASON: [RegExp, ApiErrorReason][] = [
+  [/the limit per line is \d+/, "systemLineLimit"],
+  [/the limit per order is \d+/, "systemOrderLimit"],
+];
+
 function errorReason(status: number, code: string, serverMessage: string | undefined): ApiErrorReason {
   if (serverMessage && SERVER_MESSAGE_REASON[serverMessage]) return SERVER_MESSAGE_REASON[serverMessage];
+  const pattern = serverMessage && SERVER_MESSAGE_PATTERN_REASON.find(([re]) => re.test(serverMessage));
+  if (pattern) return pattern[1];
   if (CODE_REASON[code]) return CODE_REASON[code];
   return status >= 500 ? "server" : "unknown";
 }

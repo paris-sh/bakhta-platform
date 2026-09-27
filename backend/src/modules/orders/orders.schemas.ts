@@ -7,14 +7,23 @@ export const ticketRequestSchema = z
   .object({
     isQuickPick: z.boolean().default(false),
     fourLeafNumber: z.string().regex(/^\d{4}$/).optional(),
-    sixChanceNumbers: z.array(z.number().int()).length(6).optional(),
+    // Six Chance: 6 numbers for an exact pick, or a larger pool for a system line. The
+    // per-draw maximum is enforced by the service from the draw's rule snapshot; this only
+    // bounds the payload to what the game could ever allow (33 numbers, 5 symbols).
+    sixChanceNumbers: z.array(z.number().int()).min(6).max(33).optional(),
+    // One symbol (the original exact-pick field) OR a pool of symbols — not both.
     sixChanceSymbol: z.number().int().optional(),
+    sixChanceSymbols: z.array(z.number().int()).min(1).max(5).optional(),
+    // Deliberately no count/price fields: combination counts and every monetary amount are
+    // recomputed server-side from the draw's snapshotted rule version. Unknown keys are
+    // stripped by zod, so a client-supplied total can never reach the service.
   })
   .refine(
     (v) =>
       v.isQuickPick ||
       v.fourLeafNumber !== undefined ||
-      (v.sixChanceNumbers !== undefined && v.sixChanceSymbol !== undefined),
+      (v.sixChanceNumbers !== undefined &&
+        (v.sixChanceSymbol !== undefined || v.sixChanceSymbols !== undefined)),
     { message: "Provide a selection matching the draw's game, or set isQuickPick." },
   );
 
@@ -33,6 +42,12 @@ const selectionResponseSchema = z.union([
     numbers: z.array(z.number().int()),
     symbol: z.number().int(),
   }),
+  // A system line: the stored pools only — the covered combinations are derived, never listed.
+  z.object({
+    kind: z.literal("SIX_CHANCE_SYSTEM"),
+    numbers: z.array(z.number().int()),
+    symbols: z.array(z.number().int()),
+  }),
 ]);
 
 export const ticketResponseSchema = z.object({
@@ -42,6 +57,8 @@ export const ticketResponseSchema = z.object({
   status: z.string(),
   outcomeStatus: z.string(),
   unitPriceToman: z.string(),
+  combinationCount: z.number().int(),
+  lineTotalToman: z.string(),
   isQuickPick: z.boolean(),
   ownerUserId: z.string().uuid().nullable(),
   selection: selectionResponseSchema,
@@ -88,6 +105,8 @@ export const publicTicketCheckResponseSchema = z.object({
   drawStatus: z.string(),
   selection: selectionResponseSchema,
   unitPriceToman: z.string(),
+  combinationCount: z.number().int(),
+  lineTotalToman: z.string(),
   status: z.string(),
   outcomeStatus: z.string(),
 });
