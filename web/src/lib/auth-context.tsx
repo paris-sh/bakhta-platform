@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api } from "./api-client";
+import { ApiError, api } from "./api-client";
 import { clearStoredToken, getStoredToken, setStoredToken } from "./session-storage";
 import type { MeResponse } from "./types";
 
@@ -18,19 +18,31 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<MeResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(() => getStoredToken() !== null);
+  // Always start as loading: the server can't see sessionStorage, so deriving the initial
+  // value from it made the server and client render different headers (hydration mismatch).
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const existing = getStoredToken();
-    if (!existing) return;
+    if (!existing) {
+      Promise.resolve().then(() => setIsLoading(false));
+      return;
+    }
     api
       .me(existing)
       .then((profile) => {
         setToken(existing);
         setUser(profile);
       })
-      .catch(() => {
-        clearStoredToken();
+      .catch((err: unknown) => {
+        // Only a rejected session means "logged out". A network/server hiccup must not
+        // silently discard a valid session — keep the token so pages can retry and show
+        // their own error instead of bouncing the user to the login page.
+        if (err instanceof ApiError && err.status === 401) {
+          clearStoredToken();
+        } else {
+          setToken(existing);
+        }
       })
       .finally(() => setIsLoading(false));
   }, []);

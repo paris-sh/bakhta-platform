@@ -39,13 +39,3 @@ export function useCountdown(targetIso: string | null | undefined): CountdownPar
 
   return parts;
 }
-
-function pad(n: number): string {
-  return n.toString().padStart(2, "0");
-}
-
-export function formatCountdown(parts: CountdownParts): string {
-  if (parts.isPast) return "به پایان رسید";
-  if (parts.days > 0) return `${parts.days} روز و ${pad(parts.hours)}:${pad(parts.minutes)}:${pad(parts.seconds)}`;
-  return `${pad(parts.hours)}:${pad(parts.minutes)}:${pad(parts.seconds)}`;
-}

@@ -1,19 +1,25 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { ApiError, api } from "@/lib/api-client";
+import { useRouter } from "next/navigation";
+import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { ErrorMessage } from "@/components/StatusMessage";
+import { useI18n } from "@/lib/i18n/locale-context";
+import { clearPendingLoginEmail, peekPendingLoginEmail } from "@/lib/pending-login";
+import { AuthShell } from "@/components/AuthShell";
+import { ErrorMessage, Notice } from "@/components/StatusMessage";
 
-function LoginForm() {
+export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { login } = useAuth();
-  const [email, setEmail] = useState(searchParams.get("email") ?? "");
+  const { t, errorText } = useI18n();
+  // Prefilled only when arriving straight from registration (in memory, never via the URL).
+  const [email, setEmail] = useState(peekPendingLoginEmail);
+  const [justRegistered] = useState(() => peekPendingLoginEmail() !== "");
+  useEffect(clearPendingLoginEmail, []);
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
@@ -25,70 +31,64 @@ function LoginForm() {
       await login(session.token);
       router.push("/");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "ورود ناموفق بود.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-      <div>
-        <label htmlFor="email" className="mb-1 block text-sm font-medium">
-          ایمیل
-        </label>
-        <input
-          id="email"
-          type="email"
-          required
-          dir="ltr"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="focus-ring w-full rounded-lg border border-border bg-background px-3 py-2"
-        />
-      </div>
-      <div>
-        <label htmlFor="password" className="mb-1 block text-sm font-medium">
-          رمز عبور
-        </label>
-        <input
-          id="password"
-          type="password"
-          required
-          dir="ltr"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="focus-ring w-full rounded-lg border border-border bg-background px-3 py-2"
-        />
-      </div>
+    <AuthShell
+      title={t.auth.loginTitle}
+      subtitle={t.auth.loginSubtitle}
+      footer={
+        <>
+          {t.auth.noAccount}{" "}
+          <Link href="/register" className="font-semibold text-brand underline-offset-4 hover:underline">
+            {t.auth.registerLink}
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+        {justRegistered && <Notice tone="success">{t.auth.registeredPleaseLogin}</Notice>}
+        <div>
+          <label htmlFor="email" className="field-label">
+            {t.auth.email}
+          </label>
+          <input
+            id="email"
+            type="email"
+            required
+            autoComplete="email"
+            dir="ltr"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="input"
+          />
+        </div>
+        <div>
+          <label htmlFor="password" className="field-label">
+            {t.auth.password}
+          </label>
+          <input
+            id="password"
+            type="password"
+            required
+            autoComplete="current-password"
+            dir="ltr"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="input"
+          />
+        </div>
 
-      {error && <ErrorMessage message={error} />}
+        {error !== null && <ErrorMessage message={errorText(error)} />}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="focus-ring rounded-lg bg-brand px-4 py-3 font-bold text-brand-contrast hover:bg-brand-dark disabled:opacity-50"
-      >
-        {submitting ? "در حال ورود..." : "ورود"}
-      </button>
-
-      <p className="text-center text-sm text-muted">
-        حساب ندارید؟{" "}
-        <Link href="/register" className="text-brand underline">
-          ثبت‌نام کنید
-        </Link>
-      </p>
-    </form>
-  );
-}
-
-export default function LoginPage() {
-  return (
-    <div className="mx-auto max-w-md px-4 py-12 sm:px-6">
-      <h1 className="mb-6 text-2xl font-extrabold">ورود</h1>
-      <Suspense fallback={null}>
-        <LoginForm />
-      </Suspense>
-    </div>
+        <button type="submit" disabled={submitting} className="btn btn-primary btn-lg mt-1 w-full">
+          {submitting ? t.auth.signingIn : t.auth.signIn}
+        </button>
+      </form>
+    </AuthShell>
   );
 }

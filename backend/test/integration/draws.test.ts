@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
 import { loadEnv } from "../../src/config/env.js";
 import { createDb, type Database } from "../../src/db/client.js";
-import { createTestAdmin, createTestGame } from "../helpers/fixtures.js";
+import { createTestAdmin, createTestDraw, createTestGame } from "../helpers/fixtures.js";
 
 const DAILY_FOUR_LEAF_RULES = {
   schema_version: 1,
@@ -210,6 +210,21 @@ describe("draws module", () => {
       expect(after.statusCode).toBe(200);
       expect(after.json().gameId).toBe(created.game.id);
       expect(after.json().status).toBe("SALES_OPEN");
+    });
+
+    it("skips a draw whose sales cutoff has passed even though its status is still SALES_OPEN", async () => {
+      const admin = await createTestAdmin(db, { password: "correct-horse-battery" });
+      const { game } = await createTestDraw(db, {
+        gameType: "FOUR_LEAF",
+        createdBy: admin.id,
+        rules: DAILY_FOUR_LEAF_RULES,
+        salesOpensAt: new Date(Date.now() - 3 * 60 * 60_000),
+        salesClosesAt: new Date(Date.now() - 60_000),
+        drawAt: new Date(Date.now() + 30 * 60_000),
+      });
+
+      const response = await app.inject({ method: "GET", url: `/v1/games/${game.slug}/draws/next` });
+      expect(response.statusCode).toBe(404);
     });
   });
 
