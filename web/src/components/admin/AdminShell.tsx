@@ -40,6 +40,12 @@ const OrdersIcon = () => (
     <path d="M9 8h6M9 12h6M9 16h3" />
   </Svg>
 );
+const ResultsIcon = () => (
+  <Svg>
+    <path d="M8 4h8v5a4 4 0 0 1-8 0z" />
+    <path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M9 20h6" />
+  </Svg>
+);
 const ChevronIcon = ({ flip }: { flip?: boolean }) => (
   <Svg className={`h-4 w-4 ${flip ? "rotate-180" : ""} rtl:-scale-x-100`}>
     <path d="M15 5l-7 7 7 7" />
@@ -70,6 +76,7 @@ export function useAdminNav(): NavItem[] {
     { href: "/admin", label: a.nav.dashboard, icon: <DashboardIcon />, permission: "dashboard.view" },
     { href: "/admin/games", label: a.nav.games, icon: <GamesIcon />, permission: "games.view" },
     { href: "/admin/draws", label: a.nav.draws, icon: <CalendarIcon />, permission: "draws.view" },
+    { href: "/admin/results", label: a.nav.results, icon: <ResultsIcon />, permission: "results.view" },
     { href: "/admin/orders", label: a.nav.orders, icon: <OrdersIcon />, permission: "orders.view" },
     { href: "/admin/audit", label: a.nav.audit, icon: <ShieldIcon />, permission: "audit.view" },
   ];

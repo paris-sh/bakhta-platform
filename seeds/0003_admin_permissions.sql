@@ -20,7 +20,10 @@ VALUES
   ('draws.create',                'draws',     'create',                'SENSITIVE'),
   ('draws.manage_evidence',       'draws',     'manage_evidence',       'SENSITIVE'),
   ('orders.view',                 'orders',    'view',                  'SENSITIVE'),
-  ('audit.view',                  'audit',     'view',                  'SENSITIVE')
+  ('audit.view',                  'audit',     'view',                  'SENSITIVE'),
+  ('results.view',                'results',   'view',                  'STANDARD'),
+  ('results.enter',               'results',   'enter',                 'SENSITIVE'),
+  ('results.publish',             'results',   'publish',               'CRITICAL')
 ON CONFLICT (code) DO UPDATE
   SET module = EXCLUDED.module,
       action = EXCLUDED.action,
@@ -31,7 +34,8 @@ SELECT r.id, p.id
 FROM roles r
 JOIN permissions p ON p.code IN (
   'dashboard.view', 'games.view', 'games.edit', 'games.activate_rule_version',
-  'draws.view', 'draws.create', 'draws.manage_evidence', 'orders.view', 'audit.view'
+  'draws.view', 'draws.create', 'draws.manage_evidence', 'orders.view', 'audit.view',
+  'results.view', 'results.enter', 'results.publish'
 )
 WHERE r.code = 'SUPER_ADMIN'
 ON CONFLICT (role_id, permission_id) DO NOTHING;

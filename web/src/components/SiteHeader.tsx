@@ -53,6 +53,9 @@ export function SiteHeader() {
           aria-label={t.nav.primary}
           className={`${menuOpen ? "flex" : "hidden"} absolute inset-x-0 top-full flex-col gap-1 border-b border-border bg-surface p-3 shadow-md md:static md:ms-auto md:flex md:flex-row md:items-center md:gap-1 md:border-0 md:bg-transparent md:p-0 md:shadow-none`}
         >
+          <Link href="/results" className={linkCls("/results")} onClick={close}>
+            {t.nav.results}
+          </Link>
           <Link href="/tickets/check" className={linkCls("/tickets/check")} onClick={close}>
             <SearchIcon className="h-4 w-4" />
             {t.nav.checkTicket}

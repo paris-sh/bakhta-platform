@@ -34,7 +34,7 @@ export function registerAdminRoutes(app: FastifyInstance, adminService: AdminSer
   typed.get(
     "/v1/admin/dashboard",
     {
-      preHandler: [authenticate, requirePermission(ADMIN_PERMISSIONS.DASHBOARD_VIEW)],
+      onRequest: [authenticate, requirePermission(ADMIN_PERMISSIONS.DASHBOARD_VIEW)],
       schema: { response: { 200: dashboardResponseSchema } },
     },
     async (request) => {
@@ -48,7 +48,7 @@ export function registerAdminRoutes(app: FastifyInstance, adminService: AdminSer
   typed.get(
     "/v1/admin/draws",
     {
-      preHandler: [authenticate, requirePermission(ADMIN_PERMISSIONS.DRAWS_VIEW)],
+      onRequest: [authenticate, requirePermission(ADMIN_PERMISSIONS.DRAWS_VIEW)],
       schema: { querystring: drawListQuerySchema, response: { 200: drawListResponseSchema } },
     },
     async (request) => {
@@ -60,7 +60,7 @@ export function registerAdminRoutes(app: FastifyInstance, adminService: AdminSer
   typed.get(
     "/v1/admin/orders",
     {
-      preHandler: [authenticate, requirePermission(ADMIN_PERMISSIONS.ORDERS_VIEW)],
+      onRequest: [authenticate, requirePermission(ADMIN_PERMISSIONS.ORDERS_VIEW)],
       schema: { querystring: orderListQuerySchema, response: { 200: orderListResponseSchema } },
     },
     async (request) => {
@@ -72,7 +72,7 @@ export function registerAdminRoutes(app: FastifyInstance, adminService: AdminSer
   typed.get(
     "/v1/admin/orders/:id",
     {
-      preHandler: [authenticate, requirePermission(ADMIN_PERMISSIONS.ORDERS_VIEW)],
+      onRequest: [authenticate, requirePermission(ADMIN_PERMISSIONS.ORDERS_VIEW)],
       schema: { params: orderIdParamsSchema, response: { 200: orderDetailResponseSchema } },
     },
     async (request) => adminService.getOrder(request.params.id),
@@ -81,7 +81,7 @@ export function registerAdminRoutes(app: FastifyInstance, adminService: AdminSer
   typed.get(
     "/v1/admin/audit-logs",
     {
-      preHandler: [authenticate, requirePermission(ADMIN_PERMISSIONS.AUDIT_VIEW)],
+      onRequest: [authenticate, requirePermission(ADMIN_PERMISSIONS.AUDIT_VIEW)],
       schema: { querystring: auditListQuerySchema, response: { 200: auditListResponseSchema } },
     },
     async (request) => {

@@ -41,6 +41,19 @@ export class ConflictError extends AppError {
   readonly code = "CONFLICT";
 }
 
+/** A 409 that carries its own stable, specific code (e.g. CALCULATION_BLOCKED) so clients
+ * can react precisely instead of parsing messages. */
+export class BusinessRuleError extends AppError {
+  readonly statusCode = 409;
+  constructor(
+    readonly code: string,
+    message: string,
+    details?: Record<string, unknown>,
+  ) {
+    super(message, details);
+  }
+}
+
 /** A purchase or confirmation attempted outside the draw's sales window (409, specific code). */
 export class SalesNotOpenYetError extends AppError {
   readonly statusCode = 409;

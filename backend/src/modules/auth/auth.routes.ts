@@ -71,7 +71,7 @@ export function registerAuthRoutes(app: FastifyInstance, authService: AuthServic
   typed.get(
     "/v1/me",
     {
-      preHandler: [authenticate, requirePrincipalType("USER")],
+      onRequest: [authenticate, requirePrincipalType("USER")],
       schema: { response: { 200: meResponseSchema } },
     },
     async (request) => {
@@ -91,7 +91,7 @@ export function registerAuthRoutes(app: FastifyInstance, authService: AuthServic
   typed.get(
     "/v1/admin/me",
     {
-      preHandler: [authenticate, requirePrincipalType("ADMIN")],
+      onRequest: [authenticate, requirePrincipalType("ADMIN")],
       schema: { response: { 200: adminMeResponseSchema } },
     },
     async (request) => {

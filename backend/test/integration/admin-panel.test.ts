@@ -5,7 +5,10 @@ import { buildApp } from "../../src/app.js";
 import { loadEnv } from "../../src/config/env.js";
 import { createDb, type Database } from "../../src/db/client.js";
 import { ALL_ADMIN_PERMISSIONS } from "../../src/modules/auth/permissions.js";
-import { createTestAdmin, createTestDraw, createTestUser } from "../helpers/fixtures.js";
+import { createAdminRepository } from "../../src/modules/admin/admin.repository.js";
+import { createAdminService } from "../../src/modules/admin/admin.service.js";
+import { createOrdersRepository } from "../../src/modules/orders/orders.repository.js";
+import { createTestAdmin, createTestDraw, createTestUser, toSlotSchedule } from "../helpers/fixtures.js";
 
 const PASSWORD = "correct-horse-battery";
 
@@ -136,26 +139,37 @@ describe("admin panel endpoints", () => {
     });
 
     it("reports confirmed order totals that match the database", async () => {
+      // The endpoint works for a permitted admin …
       const { token } = await adminToken(["dashboard.view", "orders.view", "audit.view"]);
       const res = await get("/v1/admin/dashboard", token);
       expect(res.statusCode).toBe(200);
-      const body = res.json();
-      const expected = await db
-        .selectFrom("orders")
-        .select([(eb) => eb.fn.countAll<string>().as("n"), (eb) => eb.fn.sum<string>("total_toman").as("v")])
-        .where("status", "=", "CONFIRMED")
-        .executeTakeFirstOrThrow();
-      expect(body.sales.confirmedOrders).toBe(Number(expected.n));
-      expect(body.sales.confirmedValueToman).toBe(String(expected.v ?? "0"));
-      const combos = await db
-        .selectFrom("tickets")
-        .select((eb) => eb.fn.sum<string>("combination_count").as("c"))
-        .where("status", "=", "CONFIRMED")
-        .where("game_type", "=", "SIX_CHANCE")
-        .executeTakeFirstOrThrow();
-      expect(body.sales.sixChanceCombinations).toBe(Number(combos.c ?? 0));
-      expect(body.sales.trend).toHaveLength(14);
-      expect(Array.isArray(body.recentAudit)).toBe(true);
+      expect(res.json().sales.trend).toHaveLength(14);
+      expect(Array.isArray(res.json().recentAudit)).toBe(true);
+
+      // … and its totals equal the database's. Other test files confirm orders concurrently,
+      // so both sides are read from ONE repeatable-read snapshot: the dashboard service and
+      // the expected totals see exactly the same rows, whatever is committed meanwhile.
+      await db
+        .transaction()
+        .setIsolationLevel("repeatable read")
+        .execute(async (trx) => {
+          const service = createAdminService(createAdminRepository(trx as unknown as Database), createOrdersRepository(trx as unknown as Database));
+          const body = await service.getDashboard(ALL_ADMIN_PERMISSIONS as unknown as string[]);
+          const expected = await trx
+            .selectFrom("orders")
+            .select([(eb) => eb.fn.countAll<string>().as("n"), (eb) => eb.fn.sum<string>("total_toman").as("v")])
+            .where("status", "=", "CONFIRMED")
+            .executeTakeFirstOrThrow();
+          expect(body.sales!.confirmedOrders).toBe(Number(expected.n));
+          expect(body.sales!.confirmedValueToman).toBe(String(expected.v ?? "0"));
+          const combos = await trx
+            .selectFrom("tickets")
+            .select((eb) => eb.fn.sum<string>("combination_count").as("c"))
+            .where("status", "=", "CONFIRMED")
+            .where("game_type", "=", "SIX_CHANCE")
+            .executeTakeFirstOrThrow();
+          expect(body.sales!.sixChanceCombinations).toBe(Number(combos.c ?? 0));
+        });
     });
   });
 
@@ -307,11 +321,28 @@ describe("admin panel endpoints", () => {
       const auth = { authorization: `Bearer ${token}` };
       const list = await get(`/v1/admin/games/${game.id}/rule-versions`, token);
       const active = list.json().find((v: { status: string }) => v.status === "ACTIVE");
-      const draft = await app.inject({
+      // A v2 clone is refused: new rule versions must make payout mode and claim period explicit.
+      const legacy = await app.inject({
         method: "POST",
         url: `/v1/admin/games/${game.id}/rule-versions`,
         headers: auth,
         payload: { rules: active.rules, changeReason: "clone" },
+      });
+      expect(legacy.statusCode).toBe(400);
+      expect(legacy.json().error.details.requiredSchemaVersion).toBe(4);
+      const upgraded = {
+        ...active.rules,
+        schema_version: 4,
+        schedule: toSlotSchedule(active.rules.schedule),
+        claim_period_days: 90,
+        remainder_destination: "PRIZE_RESERVE",
+        tiers: active.rules.tiers.map((t: { prize_type: string }) => (t.prize_type === "CASH" ? { ...t, payout_mode: "FIXED_AMOUNT" } : t)),
+      };
+      const draft = await app.inject({
+        method: "POST",
+        url: `/v1/admin/games/${game.id}/rule-versions`,
+        headers: auth,
+        payload: { rules: upgraded, changeReason: "clone" },
       });
       expect(draft.statusCode).toBe(201);
       const edited = await app.inject({
@@ -319,7 +350,7 @@ describe("admin panel endpoints", () => {
         url: `/v1/admin/rule-versions/${draft.json().id}`,
         headers: auth,
         payload: {
-          rules: { ...active.rules, ticket_price_toman: 120000 },
+          rules: { ...upgraded, ticket_price_toman: 120000 },
           changeReason: "Raise price to 120,000 for the next draws",
         },
       });

@@ -16,6 +16,12 @@ export const ADMIN_PERMISSIONS = {
   DRAWS_MANAGE_EVIDENCE: "draws.manage_evidence",
   ORDERS_VIEW: "orders.view",
   AUDIT_VIEW: "audit.view",
+  RESULTS_VIEW: "results.view",
+  RESULTS_ENTER: "results.enter",
+  // Publishing and correcting additionally require an active SUPER_ADMIN role (spec: only a
+  // SUPER_ADMIN may publish or correct), checked by requireSuperAdmin — the permission alone
+  // is never enough.
+  RESULTS_PUBLISH: "results.publish",
 } as const;
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[keyof typeof ADMIN_PERMISSIONS];

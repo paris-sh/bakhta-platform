@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { useAdminI18n } from "@/lib/admin/i18n";
 import type { AdminMessages } from "@/lib/i18n/admin-messages";
 import { binomial } from "@/lib/six-chance";
+import { newSlotId, upgradeSchedule, type ScheduleSlot } from "@/lib/admin/rules-upgrade";
 import { AdminCard, Callout, Field, Pill, inputSm } from "./ui";
 
 // Game-specific rule editor. Labelled fields for every configurable value the backend's
@@ -43,11 +44,16 @@ export function validateRules(gameType: string, rules: Rules, a: AdminMessages):
     if (!isInt(get(rules, path), min, max)) e[path] = h.wholeNumber(min, max);
   };
   need("ticket_price_toman", 1);
-  const weekdays = get(rules, "schedule.active_weekdays");
-  if (!Array.isArray(weekdays) || weekdays.length === 0) e["schedule.active_weekdays"] = h.weekdays;
-  if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(String(get(rules, "schedule.draw_time") ?? ""))) e["schedule.draw_time"] = h.drawTime;
-  need("schedule.sales_open_hours_before_draw", 1);
-  need("schedule.sales_close_minutes_before_draw", 0);
+  if (Array.isArray(get(rules, "schedule.slots"))) {
+    validateSlots(rules, a, e);
+  } else {
+    const weekdays = get(rules, "schedule.active_weekdays");
+    if (!Array.isArray(weekdays) || weekdays.length === 0) e["schedule.active_weekdays"] = h.weekdays;
+    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(String(get(rules, "schedule.draw_time") ?? ""))) e["schedule.draw_time"] = h.drawTime;
+    need("schedule.sales_open_hours_before_draw", 1);
+    need("schedule.sales_close_minutes_before_draw", 0);
+  }
+  if (get(rules, "claim_period_days") !== undefined) need("claim_period_days", 1);
 
   if (gameType === "FOUR_LEAF") {
     need("fixed_prize_toman", 1);
@@ -58,7 +64,7 @@ export function validateRules(gameType: string, rules: Rules, a: AdminMessages):
     need("jackpot_contribution_bps", 0, 10000);
     if (get(rules, "jackpot_max_toman") !== null) need("jackpot_max_toman", 1);
     if (get(rules, "lower_tier_payout_cap_toman") !== null) need("lower_tier_payout_cap_toman", 1);
-    if (get(rules, "schema_version") === 2) {
+    if (Number(get(rules, "schema_version")) >= 2) {
       need("selection.maximum_selected_numbers_per_line", 6, 33);
       need("selection.maximum_selected_symbols_per_line", 1, 5);
       need("selection.maximum_combinations_per_line", 1);
@@ -168,7 +174,6 @@ export function RuleVersionForm({
     );
   };
 
-  const weekdays = (get(rules, "schedule.active_weekdays") as number[] | undefined) ?? [];
   const schemaVersion = Number(get(rules, "schema_version") ?? 1);
   const maxNumbers = Number(get(rules, "selection.maximum_selected_numbers_per_line"));
   const maxSymbols = Number(get(rules, "selection.maximum_selected_symbols_per_line"));
@@ -176,7 +181,6 @@ export function RuleVersionForm({
   const largest = isInt(maxNumbers, 6, 33) && isInt(maxSymbols, 1, 5) ? binomial(maxNumbers, 6) * maxSymbols : null;
   const bps = Number(get(rules, "jackpot_contribution_bps"));
   const tiers = (get(rules, "tiers") as { code: string; match: string; prize_type: string; amount_toman?: number; multiplier?: number; quantity?: number }[] | undefined) ?? [];
-  const exceptions = (get(rules, "schedule.exceptions") as unknown[] | undefined) ?? [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -199,6 +203,24 @@ export function RuleVersionForm({
               {numberField("jackpot_contribution_bps", f.contribution, Number.isFinite(bps) ? h.percent(bps) : undefined)}
               {nullableField("jackpot_max_toman", f.jackpotMax)}
               {nullableField("lower_tier_payout_cap_toman", f.lowerCap)}
+              {get(rules, "remainder_destination") !== undefined && (
+                <Field label={f.capRemainder} htmlFor={id("remainder_destination")}>
+                  <select
+                    id={id("remainder_destination")}
+                    className={inputSm}
+                    dir="ltr"
+                    value={String(get(rules, "remainder_destination"))}
+                    disabled={readOnly}
+                    onChange={(e) => update("remainder_destination", e.target.value)}
+                  >
+                    {Array.from(new Set(["PRIZE_RESERVE", String(get(rules, "remainder_destination"))])).map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               <label className="flex items-center gap-2 text-sm text-ink-soft sm:col-span-2">
                 <input
                   type="checkbox"
@@ -214,50 +236,19 @@ export function RuleVersionForm({
         )}
       </div>
 
-      <AdminCard title={a.rules.sections.schedule}>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Field label={f.weekdays} error={errors["schedule.active_weekdays"]} className="md:col-span-2">
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label={f.weekdays}>
-              {a.weekdaysShort.map((label, d) => {
-                const on = weekdays.includes(d);
-                return (
-                  <button
-                    key={d}
-                    type="button"
-                    aria-pressed={on}
-                    disabled={readOnly}
-                    onClick={() => update("schedule.active_weekdays", on ? weekdays.filter((x) => x !== d) : [...weekdays, d].sort((x, y) => x - y))}
-                    className={`min-h-9 min-w-11 rounded-md border px-2 text-xs font-semibold transition-colors ${
-                      on ? "border-brand bg-brand text-brand-contrast" : "border-border-strong bg-surface text-ink-soft hover:border-brand-300"
-                    } disabled:cursor-default`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
-          <Field label={f.drawTime} htmlFor={id("schedule.draw_time")} error={errors["schedule.draw_time"]}>
-            <input
-              id={id("schedule.draw_time")}
-              type="time"
-              dir="ltr"
-              className={inputSm}
-              value={String(get(rules, "schedule.draw_time") ?? "")}
-              disabled={readOnly}
-              onChange={(e) => update("schedule.draw_time", e.target.value)}
-            />
-          </Field>
-          <Field label={f.timezone}>
-            <p className="input flex min-h-10 items-center bg-surface-muted py-1.5 text-sm text-muted" dir="ltr">
-              {String(get(rules, "schedule.timezone") ?? "")}
-            </p>
-          </Field>
-          {numberField("schedule.sales_open_hours_before_draw", f.openHours)}
-          {numberField("schedule.sales_close_minutes_before_draw", f.closeMinutes)}
-          {exceptions.length > 0 && <p className="self-end text-xs text-muted">{f.exceptions(exceptions.length)}</p>}
+      <AdminCard title={a.rules.sections.claims}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {get(rules, "claim_period_days") !== undefined ? (
+            numberField("claim_period_days", f.claimPeriod)
+          ) : (
+            <Field label={f.claimPeriod} hint={h.claimDefault}>
+              <p className="input tabular flex min-h-10 items-center bg-surface-muted py-1.5 text-sm text-muted">{num(90)}</p>
+            </Field>
+          )}
         </div>
       </AdminCard>
+
+      <ScheduleEditor rules={rules} readOnly={readOnly} errors={errors} onSchedule={(schedule) => update("schedule", schedule)} />
 
       {gameType === "FOUR_LEAF" && (
         <AdminCard title={a.rules.sections.rounding}>
@@ -330,6 +321,7 @@ export function RuleVersionForm({
 
       {gameType === "SIX_CHANCE" && tiers.length > 0 && (
         <AdminCard title={a.rules.sections.tiers} bodyClassName="">
+          <p className="border-b border-border px-4 py-2.5 text-xs text-muted">{h.fixedAmount}</p>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[28rem] text-sm">
               <thead className="border-b border-border bg-surface-muted">
@@ -337,6 +329,7 @@ export function RuleVersionForm({
                   <th className="px-4 py-2 text-start text-xs font-semibold text-muted">{f.tierCode}</th>
                   <th className="px-4 py-2 text-start text-xs font-semibold text-muted">{f.tierMatch}</th>
                   <th className="px-4 py-2 text-start text-xs font-semibold text-muted">{f.tierPrize}</th>
+                  <th className="px-4 py-2 text-start text-xs font-semibold text-muted">{f.tierMultiple}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -353,6 +346,11 @@ export function RuleVersionForm({
                       {tier.amount_toman !== undefined && <span className="tabular text-xs text-ink-soft">{money(tier.amount_toman)}</span>}
                       {tier.quantity !== undefined && <span className="tabular text-xs text-ink-soft">× {num(tier.quantity)}</span>}
                     </td>
+                    <td className="px-4 py-2 text-xs text-muted">
+                      {tier.prize_type === "CASH" && tier.amount_toman !== undefined && Number(get(rules, "ticket_price_toman")) > 0
+                        ? h.derivedMultiple(tier.amount_toman / Number(get(rules, "ticket_price_toman")))
+                        : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -361,5 +359,157 @@ export function RuleVersionForm({
         </AdminCard>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- schedule slots
+
+const TIMEZONES = ["Asia/Tehran", "Asia/Dubai", "Europe/Istanbul", "UTC"];
+const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** Slot checks mirroring the backend's slotScheduleSchema. Keys: schedule.slots.<i>.<field>. */
+function validateSlots(rules: Rules, a: AdminMessages, e: Errors) {
+  const s = a.workflow.slots;
+  const slots = (get(rules, "schedule.slots") as ScheduleSlot[] | undefined) ?? [];
+  if (slots.length === 0) e["schedule.slots"] = s.atLeastOne;
+  const seen = new Set<string>();
+  slots.forEach((slot, i) => {
+    const p = `schedule.slots.${i}`;
+    if (!Array.isArray(slot.weekdays) || slot.weekdays.length === 0) e[`${p}.weekdays`] = a.rules.hints.weekdays;
+    if (!HHMM.test(String(slot.draw_time ?? ""))) e[`${p}.draw_time`] = a.rules.hints.drawTime;
+    const open = slot.sales_open_hours_before_draw;
+    const close = slot.sales_close_minutes_before_draw;
+    if (!(typeof open === "number" && Number.isFinite(open) && open > 0)) e[`${p}.sales_open_hours_before_draw`] = s.positive;
+    if (!isInt(close, 1)) e[`${p}.sales_close_minutes_before_draw`] = a.rules.hints.wholeNumber(1);
+    else if (typeof open === "number" && open > 0 && close >= open * 60) e[`${p}.sales_close_minutes_before_draw`] = s.windowInvalid;
+    if (slot.enabled && Array.isArray(slot.weekdays)) {
+      for (const d of slot.weekdays) {
+        const key = `${slot.timezone}|${d}|${slot.draw_time}`;
+        if (seen.has(key)) e[`${p}.draw_time`] = s.duplicateTime;
+        seen.add(key);
+      }
+    }
+  });
+}
+
+function ScheduleEditor({ rules, readOnly, errors, onSchedule }: { rules: Rules; readOnly: boolean; errors: Errors; onSchedule: (schedule: Rules) => void }) {
+  const { a, num } = useAdminI18n();
+  const uid = useId();
+  const f = a.rules.fields;
+  const s = a.workflow.slots;
+  // Old snapshots store one draw time; they are shown (never edited) as their single slot.
+  const schedule = upgradeSchedule(get(rules, "schedule"));
+  const slots = schedule.slots;
+  const setSlots = (next: ScheduleSlot[]) => onSchedule({ ...schedule, slots: next });
+  const patch = (i: number, p: Partial<ScheduleSlot>) => setSlots(slots.map((x, j) => (j === i ? { ...x, ...p } : x)));
+  const err = (i: number, field: string) => errors[`schedule.slots.${i}.${field}`];
+
+  return (
+    <AdminCard
+      title={a.rules.sections.schedule}
+      action={
+        !readOnly && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              const last = slots[slots.length - 1];
+              const drawTime = "12:00";
+              setSlots([
+                ...slots,
+                {
+                  slot_id: newSlotId(drawTime, slots.map((x) => x.slot_id)),
+                  enabled: true,
+                  label: null,
+                  weekdays: last ? [...last.weekdays] : [0, 1, 2, 3, 4, 5, 6],
+                  draw_time: drawTime,
+                  timezone: last?.timezone ?? "Asia/Tehran",
+                  sales_open_hours_before_draw: last?.sales_open_hours_before_draw ?? 24,
+                  sales_close_minutes_before_draw: last?.sales_close_minutes_before_draw ?? 30,
+                },
+              ]);
+            }}
+          >
+            + {s.add}
+          </button>
+        )
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-muted">{s.hint}</p>
+        {errors["schedule.slots"] && <p className="text-xs font-semibold text-danger">{errors["schedule.slots"]}</p>}
+        {slots.length > 0 && slots.every((x) => !x.enabled) && <Callout tone="warning">{s.noneEnabled}</Callout>}
+        {slots.map((slot, i) => {
+          const pid = `${uid}-slot-${i}`;
+          return (
+            <fieldset key={slot.slot_id} className={`rounded-lg border p-3 ${slot.enabled ? "border-border" : "border-dashed border-border bg-surface-muted/60"}`}>
+              <legend className="sr-only">{slot.label || s.unnamed(i + 1)}</legend>
+              <div className="flex flex-wrap items-center gap-2">
+                <Pill tone={slot.enabled ? "success" : "neutral"}>{slot.enabled ? s.enabled : s.disabled}</Pill>
+                <span className="font-semibold">
+                  {slot.label || s.unnamed(i + 1)} · <span dir="ltr">{slot.draw_time}</span>
+                </span>
+                {!readOnly && (
+                  <span className="ms-auto flex flex-wrap gap-1.5">
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => patch(i, { enabled: !slot.enabled })}>
+                      {slot.enabled ? s.disable : s.enable}
+                    </button>
+                    <button type="button" className="btn btn-ghost btn-sm text-danger" disabled={slots.length === 1} title={slots.length === 1 ? s.atLeastOne : undefined} onClick={() => setSlots(slots.filter((_, j) => j !== i))}>
+                      {s.remove}
+                    </button>
+                  </span>
+                )}
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Field label={s.label} htmlFor={`${pid}-label`} hint={s.labelHint}>
+                  <input id={`${pid}-label`} className={inputSm} value={slot.label ?? ""} maxLength={60} disabled={readOnly} onChange={(e) => patch(i, { label: e.target.value.trim() === "" ? null : e.target.value })} />
+                </Field>
+                <Field label={f.drawTime} htmlFor={`${pid}-time`} error={err(i, "draw_time")}>
+                  <input id={`${pid}-time`} type="time" dir="ltr" className={inputSm} value={slot.draw_time} disabled={readOnly} onChange={(e) => patch(i, { draw_time: e.target.value })} />
+                </Field>
+                <Field label={f.timezone} htmlFor={`${pid}-tz`}>
+                  <select id={`${pid}-tz`} dir="ltr" className={inputSm} value={slot.timezone} disabled={readOnly} onChange={(e) => patch(i, { timezone: e.target.value })}>
+                    {Array.from(new Set([slot.timezone, ...TIMEZONES])).map((tz) => (
+                      <option key={tz} value={tz}>
+                        {tz}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label={f.openHours} htmlFor={`${pid}-open`} error={err(i, "sales_open_hours_before_draw")}>
+                  <NumberInput id={`${pid}-open`} value={slot.sales_open_hours_before_draw} onValue={(n) => patch(i, { sales_open_hours_before_draw: n })} disabled={readOnly} invalid={!!err(i, "sales_open_hours_before_draw")} />
+                </Field>
+                <Field label={f.closeMinutes} htmlFor={`${pid}-close`} error={err(i, "sales_close_minutes_before_draw")}>
+                  <NumberInput id={`${pid}-close`} value={slot.sales_close_minutes_before_draw} onValue={(n) => patch(i, { sales_close_minutes_before_draw: n })} disabled={readOnly} invalid={!!err(i, "sales_close_minutes_before_draw")} />
+                </Field>
+                <Field label={f.weekdays} error={err(i, "weekdays")} className="sm:col-span-2 xl:col-span-3">
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label={f.weekdays}>
+                    {a.weekdaysShort.map((dayLabel, d) => {
+                      const on = slot.weekdays.includes(d);
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          aria-pressed={on}
+                          disabled={readOnly}
+                          onClick={() => patch(i, { weekdays: on ? slot.weekdays.filter((x) => x !== d) : [...slot.weekdays, d].sort((x, y) => x - y) })}
+                          className={`min-h-9 min-w-11 rounded-md border px-2 text-xs font-semibold transition-colors ${
+                            on ? "border-brand bg-brand text-brand-contrast" : "border-border-strong bg-surface text-ink-soft hover:border-brand-300"
+                          } disabled:cursor-default`}
+                        >
+                          {dayLabel}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+              </div>
+            </fieldset>
+          );
+        })}
+        {schedule.exceptions.length > 0 && <p className="text-xs text-muted">{f.exceptions(schedule.exceptions.length)}</p>}
+        <p className="text-[0.7rem] text-muted">{s.count(num(slots.filter((x) => x.enabled).length))}</p>
+      </div>
+    </AdminCard>
   );
 }

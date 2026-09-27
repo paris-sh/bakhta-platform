@@ -142,17 +142,21 @@ Endpoints: `GET /v1/games`, `GET /v1/games/:slug`, `GET /v1/admin/games/:id`,
 
 ## Draws & evidence (Phase 4)
 
-- **The recurring schedule is data, not a separate table**: `rules.schedule` (timezone,
-  active weekdays, local draw time, sales-open/close offsets, dated SKIP exceptions) —
-  versioned exactly like every other rule value, per the product owner's explicit amendment
-  over a `schedule_templates` table.
-- **Draws are explicit, materialized rows — never computed per request.**
-  `POST /v1/admin/games/:id/draws/generate` reads the active rule version's schedule and
-  INSERTs real `draws` rows for occurrences not already materialized (idempotent — safe to
-  call repeatedly, e.g. from a daily job); the public "next draw" endpoint
-  (`GET /v1/games/:slug/draws/next`) is a plain indexed query (`status = 'SALES_OPEN' ORDER
-  BY draw_at LIMIT 1`) against those rows, with no schedule math at request time. If nothing
-  has been generated yet, that's a `404`, not a silently-synthesized draw.
+- **The recurring schedule is data, not a separate table**: `rules.schedule.slots` — any
+  number of draw times per game (each with a stable `slot_id`, weekdays, local draw time,
+  timezone and sales-open/close offsets) plus dated SKIP exceptions — versioned exactly like
+  every other rule value. Older rule versions store one draw time
+  (`active_weekdays`/`draw_time`); `normalizeSchedule()` reads them as one `default` slot.
+- **The schedule never creates draws.** It only produces reminders
+  (`GET /v1/admin/schedule/reminders`, `GET /v1/admin/games/:id/schedule/reminders` —
+  read-only) and prefills the SUPER_ADMIN's Create Draw form. The only insert is
+  `POST /v1/admin/games/:id/draws` (SUPER_ADMIN). An expected occurrence is identified by
+  (game, `slot_id`, local date); a draw may claim one (`scheduled_slot_id`,
+  `scheduled_local_date`), enforced unique in PostgreSQL (migration 0039) and immutable
+  afterwards. A missed occurrence can be dismissed with a reason
+  (`POST /v1/admin/games/:id/schedule/dismiss`). The public "next draw" endpoint
+  (`GET /v1/games/:slug/draws/next`) is a plain query against created draws — `404` until
+  a SUPER_ADMIN has created one.
 - **Timezone-aware occurrence math is unit-tested against a DST-observing zone, not just a
   fixed-offset one** — `schedule.ts`'s `zonedTimeToUtc` is verified against both Asia/Tehran
   (UTC+3:30, no DST) and America/New_York in both January (EST, UTC-5) and July (EDT,
@@ -183,7 +187,9 @@ Endpoints: `GET /v1/games`, `GET /v1/games/:slug`, `GET /v1/admin/games/:id`,
 - Permission-gated: `draws.view`, `draws.create`, `draws.manage_evidence`.
 
 Endpoints: `GET /v1/games/:slug/draws/next`, `GET /v1/admin/draws/:id`,
-`GET /v1/admin/games/:id/draws`, `POST /v1/admin/games/:id/draws/generate`,
+`GET /v1/admin/games/:id/draws`, `POST /v1/admin/games/:id/draws` (manual create),
+`PATCH /v1/admin/draws/:id`, `GET /v1/admin/schedule/reminders`,
+`GET /v1/admin/games/:id/schedule/reminders`, `POST /v1/admin/games/:id/schedule/dismiss`,
 `POST /v1/admin/draws/:id/evidence`, `PATCH /v1/admin/draw-evidence/:id/status`.
 
 ## Orders & tickets (Phase 5)

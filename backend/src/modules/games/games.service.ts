@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
 import { canonicalJsonStringify } from "../../shared/canonical-json.js";
-import { ConflictError, NotFoundError, ValidationError } from "../../shared/errors.js";
+import { BusinessRuleError, ConflictError, NotFoundError, ValidationError } from "../../shared/errors.js";
 import type { GameStatusEnum } from "../../db/types.js";
 import type { AuditService } from "../audit/audit.service.js";
 import type { GamesRepository } from "./games.repository.js";
-import { resolveRulesValidator, supportedSchemaVersions, type GameType } from "./rules.schemas.js";
+import {
+  CREATABLE_SCHEMA_VERSION,
+  resolveRulesValidator,
+  supportedSchemaVersions,
+  type GameType,
+} from "./rules.schemas.js";
 
 export interface AuditContext {
   requestId: string | null;
@@ -27,6 +32,17 @@ function validateRulesPayload(
     throw new ValidationError(
       "rules.schema_version is required and must be an integer.",
       { supportedSchemaVersions: supportedSchemaVersions(gameType) },
+    );
+  }
+
+  // Every rule version written from now on (a new draft or an edit to one) must use the
+  // creatable schema_version, which makes the payout mode and claim period explicit. Older
+  // schema versions stay registered only so stored versions and draw snapshots stay readable.
+  const creatable = CREATABLE_SCHEMA_VERSION[gameType];
+  if (schemaVersion !== creatable) {
+    throw new ValidationError(
+      `New rule versions for ${gameType} must use schema_version ${creatable}.`,
+      { requiredSchemaVersion: creatable, supportedSchemaVersions: supportedSchemaVersions(gameType) },
     );
   }
 
@@ -255,6 +271,48 @@ export function createGamesService(repo: GamesRepository, audit: AuditService) {
       });
 
       return toRuleVersionShape(updated);
+    },
+
+    /**
+     * "Save changes" on the current settings: validates the rules (creatable schema), then
+     * creates and activates a new version atomically, retiring the previous one.
+     */
+    async saveSettings(gameId: string, input: { rules: Record<string, unknown>; reason: string }, adminId: string, ctx: AuditContext) {
+      const game = await repo.findGameById(gameId);
+      if (!game) throw new NotFoundError(`No game found with id "${gameId}".`);
+      const validatedRules = validateRulesPayload(game.game_type, input.rules);
+      const result = await repo.saveSettingsAsNewActiveVersion({
+        gameId,
+        gameType: game.game_type,
+        rules: validatedRules,
+        rulesHash: hashRules(validatedRules),
+        changeReason: input.reason,
+        adminId,
+        audit: { actorAdminId: adminId, reason: input.reason, ...ctx },
+      });
+      if (result.outcome === "concurrent_conflict") {
+        throw new ConflictError("The game's settings changed concurrently with this request; reload and try again.");
+      }
+      return toRuleVersionShape(result.row);
+    },
+
+    /** Deletes an unused DRAFT rule version; its full content is kept in the audit trail. */
+    async discardDraftRuleVersion(ruleVersionId: string, reason: string, actorAdminId: string | null, ctx: AuditContext) {
+      const result = await repo.discardDraftRuleVersion(ruleVersionId, { actorAdminId, reason, ...ctx });
+      switch (result.outcome) {
+        case "not_found":
+          throw new NotFoundError(`No rule version found with id "${ruleVersionId}".`);
+        case "not_draft":
+          throw new BusinessRuleError("RULE_VERSION_NOT_DRAFT", `Only an unused DRAFT can be discarded (this version is ${result.status}).`);
+        case "referenced":
+          throw new BusinessRuleError("RULE_VERSION_REFERENCED", "This version is used by draws, tickets or calculations and cannot be discarded.", {
+            draws: result.draws,
+            tickets: result.tickets,
+            runs: result.runs,
+          });
+        case "discarded":
+          return { id: result.row.id, versionNumber: result.row.version_number, discarded: true };
+      }
     },
 
     async activateRuleVersion(ruleVersionId: string, activatedBy: string, ctx: AuditContext) {

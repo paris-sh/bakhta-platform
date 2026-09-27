@@ -217,6 +217,10 @@ BEGIN
     p_run_id, p_result_id, p_draw_id, p_ticket_id, p_tier_code, 'CASH',
     p_amount, p_is_current, now() + interval '90 days'
   ) RETURNING id INTO v_id;
+  -- Migration 0038: every award is backed by components whose totals match it (checked by a
+  -- deferred trigger at COMMIT, so fixtures that commit — the concurrency races — need one).
+  INSERT INTO prize_award_components (award_id, tier_code, component_type, amount_toman, matched_combinations)
+  VALUES (v_id, p_tier_code, 'CASH', p_amount, 1);
   RETURN v_id;
 END;
 $$ LANGUAGE plpgsql;

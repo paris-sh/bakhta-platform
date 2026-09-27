@@ -25,6 +25,9 @@ import { createOrdersService } from "./modules/orders/orders.service.js";
 import { createAdminRepository } from "./modules/admin/admin.repository.js";
 import { registerAdminRoutes } from "./modules/admin/admin.routes.js";
 import { createAdminService } from "./modules/admin/admin.service.js";
+import { createResultsRepository } from "./modules/results/results.repository.js";
+import { registerResultsRoutes } from "./modules/results/results.routes.js";
+import { createResultsService } from "./modules/results/results.service.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 
 declare module "fastify" {
@@ -53,7 +56,7 @@ export function buildApp(env: Env, db: Database): FastifyInstance {
   void app.register(cors, {
     origin: env.CORS_ORIGINS,
     credentials: false,
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
   });
 
@@ -82,6 +85,7 @@ export function buildApp(env: Env, db: Database): FastifyInstance {
 
   const adminService = createAdminService(createAdminRepository(db), ordersRepository);
   registerAdminRoutes(app, adminService, authService);
+  registerResultsRoutes(app, createResultsService(createResultsRepository(db)), authService);
 
   app.get(
     "/health",

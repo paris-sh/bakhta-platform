@@ -22,6 +22,8 @@ export interface RecordAdminActionInput {
   requestId?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
+  /** Defaults to the column default (INFO). */
+  severity?: "INFO" | "WARNING" | "CRITICAL";
 }
 
 export function createAuditService(db: Database) {
@@ -42,6 +44,7 @@ export function createAuditService(db: Database) {
           request_id: input.requestId ?? null,
           ip_address: input.ipAddress ?? null,
           user_agent: input.userAgent ?? null,
+          ...(input.severity ? { severity: input.severity } : {}),
         })
         .execute();
     },

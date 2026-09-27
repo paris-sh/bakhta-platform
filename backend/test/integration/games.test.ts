@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
 import { loadEnv } from "../../src/config/env.js";
 import { createDb, type Database } from "../../src/db/client.js";
-import { createTestAdmin, createTestGame } from "../helpers/fixtures.js";
+import { createTestAdmin, createTestGame, toSlotSchedule } from "../helpers/fixtures.js";
 
 const VALID_FOUR_LEAF_RULES = {
   schema_version: 1,
@@ -30,6 +30,9 @@ const VALID_FOUR_LEAF_RULES = {
   rounding_unit_toman: 1,
   remainder_destination: "PRIZE_RESERVE",
 };
+
+// New rule versions must use the creatable schema_version (explicit claim period).
+const CREATABLE_FOUR_LEAF_RULES = { ...VALID_FOUR_LEAF_RULES, schema_version: 3, claim_period_days: 90, schedule: toSlotSchedule(VALID_FOUR_LEAF_RULES.schedule) };
 
 describe("games module", () => {
   let app: FastifyInstance;
@@ -189,7 +192,7 @@ describe("games module", () => {
       });
       const { token } = login.json();
 
-      const { rounding_unit_toman: _r, remainder_destination: _d, ...invalidRules } = VALID_FOUR_LEAF_RULES;
+      const { rounding_unit_toman: _r, remainder_destination: _d, ...invalidRules } = CREATABLE_FOUR_LEAF_RULES;
 
       const response = await app.inject({
         method: "POST",
@@ -218,7 +221,7 @@ describe("games module", () => {
       });
       const { token } = login.json();
 
-      const newRules = { ...VALID_FOUR_LEAF_RULES, ticket_price_toman: 75000 };
+      const newRules = { ...CREATABLE_FOUR_LEAF_RULES, ticket_price_toman: 75000 };
       const createResponse = await app.inject({
         method: "POST",
         url: `/v1/admin/games/${created.game.id}/rule-versions`,
@@ -299,7 +302,7 @@ describe("games module", () => {
           method: "POST",
           url: `/v1/admin/games/${created.game.id}/rule-versions`,
           headers: { authorization: `Bearer ${token}` },
-          payload: { rules: VALID_FOUR_LEAF_RULES, changeReason: "Draft v2" },
+          payload: { rules: CREATABLE_FOUR_LEAF_RULES, changeReason: "Draft v2" },
         })
       ).json();
 
@@ -308,7 +311,7 @@ describe("games module", () => {
         url: `/v1/admin/rule-versions/${draft.id}`,
         headers: { authorization: `Bearer ${token}` },
         payload: {
-          rules: { ...VALID_FOUR_LEAF_RULES, ticket_price_toman: 80000 },
+          rules: { ...CREATABLE_FOUR_LEAF_RULES, ticket_price_toman: 80000 },
           changeReason: "Revised price before activating",
         },
       });
@@ -339,11 +342,11 @@ describe("games module", () => {
           method: "POST",
           url: `/v1/admin/games/${created.game.id}/rule-versions`,
           headers: { authorization: `Bearer ${token}` },
-          payload: { rules: VALID_FOUR_LEAF_RULES, changeReason: "Draft v2" },
+          payload: { rules: CREATABLE_FOUR_LEAF_RULES, changeReason: "Draft v2" },
         })
       ).json();
 
-      const { schema_version: _sv, ...withoutVersion } = VALID_FOUR_LEAF_RULES;
+      const { schema_version: _sv, ...withoutVersion } = CREATABLE_FOUR_LEAF_RULES;
       const response = await app.inject({
         method: "PATCH",
         url: `/v1/admin/rule-versions/${draft.id}`,
@@ -385,7 +388,7 @@ describe("games module", () => {
           method: "POST",
           url: `/v1/admin/games/${created.game.id}/rule-versions`,
           headers: { authorization: `Bearer ${token}` },
-          payload: { rules: VALID_FOUR_LEAF_RULES, changeReason: "Draft v2" },
+          payload: { rules: CREATABLE_FOUR_LEAF_RULES, changeReason: "Draft v2" },
         })
       ).json();
       await app.inject({
@@ -433,7 +436,7 @@ describe("games module", () => {
           method: "POST",
           url: `/v1/admin/games/${created.game.id}/rule-versions`,
           headers: { authorization: `Bearer ${token}` },
-          payload: { rules: VALID_FOUR_LEAF_RULES, changeReason: "Audited create" },
+          payload: { rules: CREATABLE_FOUR_LEAF_RULES, changeReason: "Audited create" },
         })
       ).json();
       await app.inject({

@@ -13,8 +13,8 @@ endpoint.
 
 - Node.js 20+
 - Local PostgreSQL with the Bakhta schema migrated and seeded (see `../README.md` and
-  `../backend/README.md`), with upcoming draws already generated for both games
-  (`POST /v1/admin/games/:id/draws/generate`)
+  `../backend/README.md`). Draws are never generated automatically: a SUPER_ADMIN creates
+  each one from the admin panel (Dashboard reminder or Draws → Create draw)
 
 ## Environment
 

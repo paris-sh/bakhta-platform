@@ -49,6 +49,16 @@ export const ruleVersionResponseSchema = z.object({
 
 export const ruleVersionListResponseSchema = z.array(ruleVersionResponseSchema);
 
+const operationalReason = z.string().trim().min(5, "must be at least 5 characters").max(2000);
+
+/** "Save changes" on the current game settings. */
+export const saveSettingsBodySchema = z.object({
+  rules: z.record(z.unknown()),
+  reason: operationalReason,
+});
+
+export const discardRuleVersionBodySchema = z.object({ reason: operationalReason });
+
 export const createRuleVersionBodySchema = z.object({
   // Validated further, per (game_type, schema_version), in the service layer against
   // rules.schemas.ts — kept as a generic record here since the shape depends on both.

@@ -7,6 +7,7 @@ import { useAdminAuth } from "@/lib/admin/auth-context";
 import { useAdminI18n } from "@/lib/admin/i18n";
 import { adminApi } from "@/lib/admin/api";
 import type { AdminDashboard } from "@/lib/admin/types";
+import { ScheduleReminders } from "@/components/admin/ScheduleReminders";
 import { useAdminNav, useBreadcrumbs } from "@/components/admin/AdminShell";
 import { AdminCard, AdminPageHeader, EmptyState, ErrorState, Pill, Skeleton, StatTile, td, th, TableWrap } from "@/components/admin/ui";
 import { GameIcon } from "@/components/brand";
@@ -60,6 +61,7 @@ export default function AdminDashboardPage() {
           <ErrorState message={errorText(error)} onRetry={load} />
         </AdminCard>
       )}
+      {can("draws.view") && <ScheduleReminders />}
       {error === null && <DashboardBody data={data} />}
     </div>
   );
