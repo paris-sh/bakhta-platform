@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "eslint .",
-    "test": "node --test src/lib/six-chance.test.mjs"
+    "test": "node --test src/lib/six-chance.test.mjs src/lib/game.test.mjs src/lib/i18n/admin-messages.test.mjs src/lib/youtube.test.mjs src/lib/admin/rules-upgrade.test.mjs src/lib/admin/tehran-time.test.mjs src/lib/admin/draw-validation.test.mjs"
   },
   "dependencies": {
     "next": "16.3.6",

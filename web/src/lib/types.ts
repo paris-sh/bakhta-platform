@@ -27,7 +27,10 @@ export interface SixChanceRules {
   [key: string]: unknown;
 }
 
-export interface DrawSchedule {
+/** A rule version's schedule as stored. Older versions use one draw time
+ * (active_weekdays/draw_time); newer ones use any number of slots. Read it through
+ * scheduleSlots() in lib/game.ts rather than trusting either shape. */
+export interface LegacyDrawSchedule {
   timezone: string;
   active_weekdays: number[];
   draw_time: string;
@@ -35,6 +38,24 @@ export interface DrawSchedule {
   sales_close_minutes_before_draw: number;
   exceptions: unknown[];
 }
+
+export interface DrawScheduleSlot {
+  slot_id: string;
+  enabled: boolean;
+  label?: string | null;
+  weekdays: number[];
+  draw_time: string;
+  timezone: string;
+  sales_open_hours_before_draw: number;
+  sales_close_minutes_before_draw: number;
+}
+
+export interface SlotDrawSchedule {
+  slots: DrawScheduleSlot[];
+  exceptions: unknown[];
+}
+
+export type DrawSchedule = LegacyDrawSchedule | SlotDrawSchedule;
 
 export type GameRules = FourLeafRules | SixChanceRules;
 
@@ -57,6 +78,8 @@ export interface Draw {
   status: string;
   salesOpensAt: string;
   salesClosesAt: string;
+  /** Server verdict at response time; only OPEN is purchasable (the server re-checks on order). */
+  salesState: "UPCOMING" | "OPEN" | "CLOSED" | "NOT_ON_SALE";
   drawAt: string;
   officialTimezone: string;
   currentRuleVersionId: string;
@@ -164,3 +187,49 @@ export interface TicketDraftSixChance {
 }
 
 export type TicketDraft = TicketDraftFourLeaf | TicketDraftSixChance;
+
+// ---------------------------------------------------------------- public results
+// Only the current published result; no internal identifiers, versions or history.
+
+export type PublicWinning =
+  | { kind: "FOUR_LEAF"; numberValue: string }
+  | { kind: "SIX_CHANCE"; drawOrder: number[]; sortedNumbers: number[]; symbol: number };
+
+export interface PublicResultGame {
+  slug: string;
+  gameType: "FOUR_LEAF" | "SIX_CHANCE";
+  nameEn: string;
+  nameFa: string;
+}
+
+export interface PublicResultListItem {
+  game: PublicResultGame;
+  drawNumber: string;
+  drawAt: string;
+  publishedAt: string;
+  winning: PublicWinning;
+  winningRows: number;
+}
+
+export interface PublicResultDetail {
+  game: PublicResultGame;
+  drawNumber: string;
+  drawAt: string;
+  salesClosedAt: string;
+  publishedAt: string;
+  officialTimezone: string;
+  winning: PublicWinning;
+  confirmedTickets: number;
+  tiers: {
+    code: string;
+    match: string;
+    prizeType: string;
+    winningRows: number;
+    prizePerRowToman: string | null;
+    freeTicketsPerRow: number | null;
+    totalPrizeToman: string;
+  }[];
+  totalPrizeToman: string;
+  jackpot: { amountToman: string | null; won: boolean; nextJackpotToman: string | null } | null;
+  evidence: { youtubeUrl: string } | null;
+}

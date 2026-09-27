@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   fourLeafRulesV1Schema,
+  fourLeafRulesV2Schema,
+  fourLeafRulesV3Schema,
+  sixChanceRulesV3Schema,
+  sixChanceRulesV4Schema,
   resolveRulesValidator,
   sixChanceRulesV1Schema,
 } from "../../src/modules/games/rules.schemas.js";
@@ -107,7 +111,11 @@ describe("rules schemas against the real seeded payloads", () => {
   it("resolves by BOTH game_type and schema_version — an unsupported version resolves to nothing", () => {
     expect(resolveRulesValidator("FOUR_LEAF", 1)).toBe(fourLeafRulesV1Schema);
     expect(resolveRulesValidator("SIX_CHANCE", 1)).toBe(sixChanceRulesV1Schema);
-    expect(resolveRulesValidator("FOUR_LEAF", 2)).toBeUndefined();
+    expect(resolveRulesValidator("FOUR_LEAF", 2)).toBe(fourLeafRulesV2Schema);
+    expect(resolveRulesValidator("SIX_CHANCE", 3)).toBe(sixChanceRulesV3Schema);
+    expect(resolveRulesValidator("FOUR_LEAF", 3)).toBe(fourLeafRulesV3Schema);
+    expect(resolveRulesValidator("SIX_CHANCE", 4)).toBe(sixChanceRulesV4Schema);
+    expect(resolveRulesValidator("FOUR_LEAF", 4)).toBeUndefined();
     expect(resolveRulesValidator("SIX_CHANCE", 999)).toBeUndefined();
   });
 

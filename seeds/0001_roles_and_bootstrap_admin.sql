@@ -21,7 +21,10 @@
 --     Argon2id hash and is the only thing that ever writes to admin_credentials for this
 --     account. This is an explicit, deliberate handoff boundary between the database layer
 --     and the backend layer, not an oversight.
---   * Idempotent: safe to re-run; never resets or overwrites an existing row.
+--   * Idempotent: safe to re-run; never resets or overwrites an existing row. The bootstrap
+--     admin is identified by admin_number first (stable) and email second, so changing its
+--     login email later (and BAKHTA_BOOTSTRAP_ADMIN_EMAIL with it) never creates a second
+--     bootstrap admin.
 --   * Implementation note: psql variable interpolation (:'name') is NOT performed inside
 --     dollar-quoted ($$...$$) bodies (this is documented psql behavior, to avoid clashing
 --     with type casts and other uses of ':' inside function/DO-block source). Every
@@ -50,14 +53,18 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO admin_accounts (admin_number, email, status)
 SELECT :'bootstrap_admin_number', :'bootstrap_admin_email', 'ACTIVE'
 WHERE NOT EXISTS (
-  SELECT 1 FROM admin_accounts WHERE email = :'bootstrap_admin_email'
+  SELECT 1 FROM admin_accounts
+  WHERE admin_number = :'bootstrap_admin_number' OR email = :'bootstrap_admin_email'
 );
 
 INSERT INTO admin_role_assignments (admin_id, role_id, assigned_by)
 SELECT aa.id, r.id, aa.id
 FROM admin_accounts aa
 CROSS JOIN roles r
-WHERE aa.email = :'bootstrap_admin_email'
+WHERE aa.id = COALESCE(
+    (SELECT id FROM admin_accounts WHERE admin_number = :'bootstrap_admin_number'),
+    (SELECT id FROM admin_accounts WHERE email = :'bootstrap_admin_email')
+  )
   AND r.code = 'SUPER_ADMIN'
   AND NOT EXISTS (
     SELECT 1 FROM admin_role_assignments x

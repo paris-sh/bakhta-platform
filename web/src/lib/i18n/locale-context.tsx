@@ -49,7 +49,8 @@ export function LocaleProvider({
       if (root.dir !== dir) root.dir = dir;
     };
     apply();
-    document.title = MESSAGES[locale].meta.title;
+    // The admin panel keeps its own document title.
+    if (!window.location.pathname.startsWith("/admin")) document.title = MESSAGES[locale].meta.title;
     const observer = new MutationObserver(apply);
     observer.observe(root, { attributes: true, attributeFilter: ["lang", "dir"] });
     return () => observer.disconnect();

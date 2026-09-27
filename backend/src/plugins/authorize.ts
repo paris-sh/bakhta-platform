@@ -22,3 +22,17 @@ export function requirePermission(code: string) {
     }
   };
 }
+
+/** Must run after requirePermission(). Some actions are reserved to the SUPER_ADMIN role
+ * itself (not merely a permission that could be granted to another role); the role is
+ * re-resolved from the database on every request. */
+export function requireSuperAdmin(isSuperAdmin: (adminId: string) => Promise<boolean>) {
+  return async function (request: FastifyRequest, _reply: FastifyReply): Promise<void> {
+    if (!request.principal || request.principal.type !== "ADMIN") {
+      throw new ForbiddenError("This endpoint requires an ADMIN session.");
+    }
+    if (!(await isSuperAdmin(request.principal.adminId))) {
+      throw new ForbiddenError("Only a SUPER_ADMIN may perform this action.");
+    }
+  };
+}

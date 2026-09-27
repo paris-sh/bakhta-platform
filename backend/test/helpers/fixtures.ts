@@ -177,3 +177,30 @@ export async function createTestDraw(
 
   return { game, ruleVersion, draw };
 }
+
+/** A legacy single-time schedule as the slot schedule new rule versions must use (one
+ * "default" slot with the same days, time and offsets). */
+export function toSlotSchedule(legacy: {
+  timezone: string;
+  active_weekdays: number[];
+  draw_time: string;
+  sales_open_hours_before_draw: number;
+  sales_close_minutes_before_draw: number;
+  exceptions?: unknown[];
+}) {
+  return {
+    slots: [
+      {
+        slot_id: "default",
+        enabled: true,
+        label: null,
+        weekdays: legacy.active_weekdays,
+        draw_time: legacy.draw_time,
+        timezone: legacy.timezone,
+        sales_open_hours_before_draw: legacy.sales_open_hours_before_draw,
+        sales_close_minutes_before_draw: legacy.sales_close_minutes_before_draw,
+      },
+    ],
+    exceptions: legacy.exceptions ?? [],
+  };
+}

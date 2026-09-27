@@ -1,12 +1,14 @@
+import { ADMIN_PERMISSIONS } from "../auth/permissions.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import type { AuthService } from "../auth/auth.service.js";
 import { createAuthenticateHook } from "../../plugins/authenticate.js";
-import { requirePermission } from "../../plugins/authorize.js";
+import { requirePermission, requireSuperAdmin } from "../../plugins/authorize.js";
 import type { AuditContext } from "./games.service.js";
 import {
   adminGameResponseSchema,
   createRuleVersionBodySchema,
+  discardRuleVersionBodySchema,
   gameIdParamsSchema,
   gameListResponseSchema,
   gamePublicResponseSchema,
@@ -14,6 +16,7 @@ import {
   ruleVersionIdParamsSchema,
   ruleVersionListResponseSchema,
   ruleVersionResponseSchema,
+  saveSettingsBodySchema,
   updateGameBodySchema,
   updateRuleVersionBodySchema,
 } from "./games.schemas.js";
@@ -23,9 +26,9 @@ import type { GamesService } from "./games.service.js";
 // Administration-module concern (not yet built) — until a role is granted these, no ADMIN
 // can reach the corresponding endpoint, which is the correct default-deny posture.
 const PERMISSIONS = {
-  VIEW: "games.view",
-  EDIT: "games.edit",
-  ACTIVATE_RULE_VERSION: "games.activate_rule_version",
+  VIEW: ADMIN_PERMISSIONS.GAMES_VIEW,
+  EDIT: ADMIN_PERMISSIONS.GAMES_EDIT,
+  ACTIVATE_RULE_VERSION: ADMIN_PERMISSIONS.GAMES_ACTIVATE_RULE_VERSION,
 } as const;
 
 function auditContext(request: FastifyRequest): AuditContext {
@@ -64,7 +67,7 @@ export function registerGamesRoutes(
   typed.get(
     "/v1/admin/games/:id",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.VIEW)],
+      onRequest: [authenticate, requirePermission(PERMISSIONS.VIEW)],
       schema: { params: gameIdParamsSchema, response: { 200: adminGameResponseSchema } },
     },
     async (request) => gamesService.getAdminGame(request.params.id),
@@ -73,7 +76,7 @@ export function registerGamesRoutes(
   typed.patch(
     "/v1/admin/games/:id",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.EDIT)],
+      onRequest: [authenticate, requirePermission(PERMISSIONS.EDIT)],
       schema: {
         params: gameIdParamsSchema,
         body: updateGameBodySchema,
@@ -91,10 +94,38 @@ export function registerGamesRoutes(
     },
   );
 
+  // Simplified settings workflow (SUPER_ADMIN): save the current settings directly, and
+  // discard an unused draft. Authentication runs in onRequest, before body validation.
+  const superAdminOnly = requireSuperAdmin((id) => authService.isSuperAdmin(id));
+
+  typed.put(
+    "/v1/admin/games/:id/settings",
+    {
+      onRequest: [authenticate, requirePermission(PERMISSIONS.EDIT), requirePermission(PERMISSIONS.ACTIVATE_RULE_VERSION), superAdminOnly],
+      schema: { params: gameIdParamsSchema, body: saveSettingsBodySchema, response: { 200: ruleVersionResponseSchema } },
+    },
+    async (request) => {
+      const principal = request.principal as { type: "ADMIN"; adminId: string };
+      return gamesService.saveSettings(request.params.id, request.body, principal.adminId, auditContext(request));
+    },
+  );
+
+  typed.post(
+    "/v1/admin/rule-versions/:id/discard",
+    {
+      onRequest: [authenticate, requirePermission(PERMISSIONS.EDIT), superAdminOnly],
+      schema: { params: ruleVersionIdParamsSchema, body: discardRuleVersionBodySchema },
+    },
+    async (request) => {
+      const principal = request.principal as { type: "ADMIN"; adminId: string };
+      return gamesService.discardDraftRuleVersion(request.params.id, request.body.reason, principal.adminId, auditContext(request));
+    },
+  );
+
   typed.get(
     "/v1/admin/games/:id/rule-versions",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.VIEW)],
+      onRequest: [authenticate, requirePermission(PERMISSIONS.VIEW)],
       schema: { params: gameIdParamsSchema, response: { 200: ruleVersionListResponseSchema } },
     },
     async (request) => gamesService.listRuleVersions(request.params.id),
@@ -103,7 +134,7 @@ export function registerGamesRoutes(
   typed.post(
     "/v1/admin/games/:id/rule-versions",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.EDIT)],
+      onRequest: [authenticate, requirePermission(PERMISSIONS.EDIT)],
       schema: {
         params: gameIdParamsSchema,
         body: createRuleVersionBodySchema,
@@ -127,7 +158,7 @@ export function registerGamesRoutes(
   typed.patch(
     "/v1/admin/rule-versions/:id",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.EDIT)],
+      onRequest: [authenticate, requirePermission(PERMISSIONS.EDIT)],
       schema: {
         params: ruleVersionIdParamsSchema,
         body: updateRuleVersionBodySchema,
@@ -148,7 +179,7 @@ export function registerGamesRoutes(
   typed.post(
     "/v1/admin/rule-versions/:id/activate",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.ACTIVATE_RULE_VERSION)],
+      onRequest: [authenticate, requirePermission(PERMISSIONS.ACTIVATE_RULE_VERSION)],
       schema: {
         params: ruleVersionIdParamsSchema,
         response: { 200: ruleVersionResponseSchema },

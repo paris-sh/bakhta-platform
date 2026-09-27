@@ -2,11 +2,8 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { Inter, Vazirmatn } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from "@/lib/auth-context";
 import { LocaleProvider } from "@/lib/i18n/locale-context";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, MESSAGES, isLocale, localeDir, type Locale } from "@/lib/i18n/messages";
-import { SiteHeader } from "@/components/SiteHeader";
-import { SiteFooter } from "@/components/SiteFooter";
 
 // Both self-hosted at build time by next/font — no runtime request to Google.
 const inter = Inter({
@@ -38,13 +35,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={locale} dir={localeDir(locale)} className={`${inter.variable} ${vazirmatn.variable}`}>
       <body className="flex min-h-screen flex-col antialiased">
-        <LocaleProvider initialLocale={locale}>
-          <AuthProvider>
-            <SiteHeader />
-            <main className="w-full flex-1">{children}</main>
-            <SiteFooter />
-          </AuthProvider>
-        </LocaleProvider>
+        {/* Shared by the customer site ((site)/layout.tsx) and the admin panel
+            (admin/layout.tsx), which each bring their own, fully separate session. */}
+        <LocaleProvider initialLocale={locale}>{children}</LocaleProvider>
       </body>
     </html>
   );

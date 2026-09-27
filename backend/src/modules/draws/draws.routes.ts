@@ -1,27 +1,31 @@
+import { ADMIN_PERMISSIONS } from "../auth/permissions.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { createAuthenticateHook } from "../../plugins/authenticate.js";
-import { requirePermission } from "../../plugins/authorize.js";
+import { requirePermission, requireSuperAdmin } from "../../plugins/authorize.js";
 import type { AuthService } from "../auth/auth.service.js";
 import type { GamesService } from "../games/games.service.js";
 import {
+  adminDrawListResponseSchema,
+  adminDrawResponseSchema,
   createEvidenceBodySchema,
+  dismissOccurrenceBodySchema,
   drawIdParamsSchema,
-  drawListResponseSchema,
   drawResponseSchema,
   evidenceIdParamsSchema,
   evidenceResponseSchema,
   gameIdParamsSchema,
   gameSlugParamsSchema,
-  generateDrawsBodySchema,
+  createManualDrawBodySchema,
+  updateDrawBodySchema,
   updateEvidenceStatusBodySchema,
 } from "./draws.schemas.js";
 import type { AuditContext, DrawsService } from "./draws.service.js";
 
 const PERMISSIONS = {
-  VIEW: "draws.view",
-  CREATE: "draws.create",
-  MANAGE_EVIDENCE: "draws.manage_evidence",
+  VIEW: ADMIN_PERMISSIONS.DRAWS_VIEW,
+  CREATE: ADMIN_PERMISSIONS.DRAWS_CREATE,
+  MANAGE_EVIDENCE: ADMIN_PERMISSIONS.DRAWS_MANAGE_EVIDENCE,
 } as const;
 
 function auditContext(request: FastifyRequest): AuditContext {
@@ -60,8 +64,8 @@ export function registerDrawsRoutes(
   typed.get(
     "/v1/admin/draws/:id",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.VIEW)],
-      schema: { params: drawIdParamsSchema, response: { 200: drawResponseSchema } },
+      onRequest: [authenticate, requirePermission(PERMISSIONS.VIEW)],
+      schema: { params: drawIdParamsSchema, response: { 200: adminDrawResponseSchema } },
     },
     async (request) => drawsService.getDraw(request.params.id),
   );
@@ -69,41 +73,75 @@ export function registerDrawsRoutes(
   typed.get(
     "/v1/admin/games/:id/draws",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.VIEW)],
-      schema: { params: gameIdParamsSchema, response: { 200: drawListResponseSchema } },
+      onRequest: [authenticate, requirePermission(PERMISSIONS.VIEW)],
+      schema: { params: gameIdParamsSchema, response: { 200: adminDrawListResponseSchema } },
     },
     async (request) => drawsService.listDrawsForGame(request.params.id),
   );
 
-  // Creates new future draws from the active rule version's schedule. Never touches an
-  // existing draw — this is additive-only, so it does not need SUPER_ADMIN override
-  // treatment the way rescheduling/cancelling an existing draw would (not yet built; see
-  // module README).
-  typed.post(
-    "/v1/admin/games/:id/draws/generate",
+  // Reminders derived from the active schedule. Read-only: the schedule never creates a draw
+  // (no generation endpoint, job or seed exists); only the Create Draw POST below inserts one.
+  typed.get(
+    "/v1/admin/games/:id/schedule/reminders",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.CREATE)],
-      schema: {
-        params: gameIdParamsSchema,
-        body: generateDrawsBodySchema,
-        response: { 200: drawListResponseSchema },
-      },
+      onRequest: [authenticate, requirePermission(PERMISSIONS.VIEW)],
+      schema: { params: gameIdParamsSchema },
+    },
+    async (request) => drawsService.gameReminders(request.params.id),
+  );
+
+  typed.get(
+    "/v1/admin/schedule/reminders",
+    { onRequest: [authenticate, requirePermission(PERMISSIONS.VIEW)] },
+    async () => ({ items: await drawsService.listReminders() }),
+  );
+
+  // Primary workflow: a SUPER_ADMIN creates or edits a draw by hand. Auth runs in onRequest,
+  // before body validation.
+  const superAdminOnly = requireSuperAdmin((id) => authService.isSuperAdmin(id));
+
+  typed.post(
+    "/v1/admin/games/:id/draws",
+    {
+      onRequest: [authenticate, requirePermission(PERMISSIONS.CREATE), superAdminOnly],
+      schema: { params: gameIdParamsSchema, body: createManualDrawBodySchema },
+    },
+    async (request, reply) => {
+      const principal = request.principal as { type: "ADMIN"; adminId: string };
+      const result = await drawsService.createManualDraw(request.params.id, request.body, principal.adminId, auditContext(request));
+      if (!result.dryRun) reply.status(201);
+      return result;
+    },
+  );
+
+  typed.post(
+    "/v1/admin/games/:id/schedule/dismiss",
+    {
+      onRequest: [authenticate, requirePermission(PERMISSIONS.CREATE), superAdminOnly],
+      schema: { params: gameIdParamsSchema, body: dismissOccurrenceBodySchema },
     },
     async (request) => {
       const principal = request.principal as { type: "ADMIN"; adminId: string };
-      return drawsService.generateUpcomingDraws(
-        request.params.id,
-        request.body.horizonDays,
-        principal.adminId,
-        auditContext(request),
-      );
+      return drawsService.dismissOccurrence(request.params.id, request.body, principal.adminId, auditContext(request));
+    },
+  );
+
+  typed.patch(
+    "/v1/admin/draws/:id",
+    {
+      onRequest: [authenticate, requirePermission(PERMISSIONS.CREATE), superAdminOnly],
+      schema: { params: drawIdParamsSchema, body: updateDrawBodySchema },
+    },
+    async (request) => {
+      const principal = request.principal as { type: "ADMIN"; adminId: string };
+      return drawsService.updateDrawTimes(request.params.id, request.body, principal.adminId, auditContext(request));
     },
   );
 
   typed.post(
     "/v1/admin/draws/:id/evidence",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.MANAGE_EVIDENCE)],
+      onRequest: [authenticate, requirePermission(PERMISSIONS.MANAGE_EVIDENCE)],
       schema: {
         params: drawIdParamsSchema,
         body: createEvidenceBodySchema,
@@ -126,7 +164,7 @@ export function registerDrawsRoutes(
   typed.patch(
     "/v1/admin/draw-evidence/:id/status",
     {
-      preHandler: [authenticate, requirePermission(PERMISSIONS.MANAGE_EVIDENCE)],
+      onRequest: [authenticate, requirePermission(PERMISSIONS.MANAGE_EVIDENCE)],
       schema: {
         params: evidenceIdParamsSchema,
         body: updateEvidenceStatusBodySchema,

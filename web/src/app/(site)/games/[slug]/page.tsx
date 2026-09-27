@@ -46,7 +46,7 @@ type SubmitError = { kind: "guestEmail" } | { kind: "api"; error: unknown };
 export default function GamePlayPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const { token, user } = useAuth();
-  const { t, errorText, money } = useI18n();
+  const { t, errorText, money, dateTime } = useI18n();
 
   const [game, setGame] = useState<Game | null>(null);
   const [draw, setDraw] = useState<Draw | null>(null);
@@ -119,13 +119,11 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
   const overOrderCap = orderCap !== null && totalCombinations > orderCap;
   const summaryLines = drafts.map((d, i) => ({ key: d.key, index: i, combinations: lineCombinations[i] ?? 0 }));
 
-  const opensCountdown = useCountdown(draw?.salesOpensAt ?? null);
-  const cutoffCountdown = useCountdown(draw?.salesClosesAt ?? null);
-  const salesOpen =
-    draw !== null &&
-    draw.status === "SALES_OPEN" &&
-    (opensCountdown?.isPast ?? false) &&
-    !(cutoffCountdown?.isPast ?? true);
+  // Same window as the backend: open from sales_opens_at (inclusive) to sales_closes_at
+  // (exclusive). The ticking countdowns only move the UI across a boundary live; the server
+  // re-checks every order and confirmation and is the authority.
+  const salesPhase = useSalesPhase(draw);
+  const salesOpen = salesPhase === "open";
 
   function goTo(next: PurchaseStep) {
     setStep(next);
@@ -239,7 +237,11 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
               <Stepper step={step} />
             </div>
 
-            {step !== "result" && !salesOpen && <Notice tone="warning">{t.play.salesNotOpenNow}</Notice>}
+            {step !== "result" && salesPhase === "upcoming" && (
+              <Notice tone="info">{t.play.salesOpenOn(dateTime(draw.salesOpensAt))}</Notice>
+            )}
+            {step !== "result" && salesPhase === "closed" && <Notice tone="warning">{t.play.salesClosedNow}</Notice>}
+            {step !== "result" && salesPhase === "unavailable" && <Notice tone="warning">{t.play.salesNotOpenNow}</Notice>}
 
             {step === "build" && (
               <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -530,6 +532,7 @@ function GameBanner({
 }) {
   const { t, locale, money, dateTime } = useI18n();
   const theme = gameTheme(game.gameType);
+  const upcoming = useSalesPhase(draw) === "upcoming";
   const isSix = game.gameType === "SIX_CHANCE";
 
   const prize = rules
@@ -605,7 +608,11 @@ function GameBanner({
 
           {draw && (
             <div className="flex flex-col gap-4 rounded-xl border border-white/15 bg-black/15 p-4 backdrop-blur-sm sm:p-5">
-              <Countdown targetIso={draw.salesClosesAt} label={t.play.salesCloseIn} tone="dark" />
+              {upcoming ? (
+                <Countdown targetIso={draw.salesOpensAt} label={t.play.salesOpenIn} tone="dark" />
+              ) : (
+                <Countdown targetIso={draw.salesClosesAt} label={t.play.salesCloseIn} tone="dark" />
+              )}
               <dl className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <dt className="flex items-center gap-1 text-xs text-white/65">
@@ -619,10 +626,10 @@ function GameBanner({
                 <div>
                   <dt className="flex items-center gap-1 text-xs text-white/65">
                     <ClockIcon className="h-3.5 w-3.5" />
-                    {t.play.salesClose}
+                    {upcoming ? t.play.salesOpen : t.play.salesClose}
                   </dt>
-                  <dd className="mt-0.5 font-semibold" title={draw.salesClosesAt}>
-                    {dateTime(draw.salesClosesAt)}
+                  <dd className="mt-0.5 font-semibold" title={upcoming ? draw.salesOpensAt : draw.salesClosesAt}>
+                    {dateTime(upcoming ? draw.salesOpensAt : draw.salesClosesAt)}
                   </dd>
                 </div>
               </dl>
@@ -632,6 +639,18 @@ function GameBanner({
       </div>
     </section>
   );
+}
+
+type SalesPhase = "upcoming" | "open" | "closed" | "unavailable";
+
+/** Where `draw` is in its sales window right now, re-evaluated every second. */
+function useSalesPhase(draw: Draw | null): SalesPhase {
+  const opens = useCountdown(draw?.salesOpensAt ?? null);
+  const closes = useCountdown(draw?.salesClosesAt ?? null);
+  if (!draw || draw.status !== "SALES_OPEN" || !opens || !closes) return "unavailable";
+  if (!opens.isPast) return "upcoming";
+  if (closes.isPast) return "closed";
+  return "open";
 }
 
 function draftSelection(d: TicketDraft): TicketSelection {

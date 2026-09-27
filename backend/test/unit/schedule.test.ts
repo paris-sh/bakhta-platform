@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  computeScheduledOccurrences,
-  weekdayInZone,
-  zonedTimeToUtc,
-} from "../../src/modules/draws/schedule.js";
-import type { Schedule } from "../../src/modules/games/rules.schemas.js";
+import { slotOccurrences, weekdayInZone, zonedTimeToUtc } from "../../src/modules/draws/schedule.js";
+import { normalizeSchedule, type LegacySchedule } from "../../src/modules/games/rules.schemas.js";
 
 describe("zonedTimeToUtc", () => {
   it("converts a non-DST timezone (Asia/Tehran, UTC+3:30, no DST since 2022) correctly", () => {
@@ -35,8 +31,9 @@ describe("weekdayInZone", () => {
   });
 });
 
-describe("computeScheduledOccurrences", () => {
-  const dailyFourLeafSchedule: Schedule = {
+// A legacy single-time schedule is read as ONE slot ("default") with identical behavior.
+describe("slotOccurrences on a legacy schedule (upgraded to one default slot)", () => {
+  const dailyFourLeafSchedule: LegacySchedule = {
     timezone: "Asia/Tehran",
     active_weekdays: [0, 1, 2, 3, 4, 5, 6],
     draw_time: "21:00",
@@ -44,40 +41,33 @@ describe("computeScheduledOccurrences", () => {
     sales_close_minutes_before_draw: 30,
     exceptions: [],
   };
+  const occurrences = (legacy: LegacySchedule, from: string, days: number) => {
+    const n = normalizeSchedule(legacy)!;
+    expect(n.slots).toHaveLength(1);
+    expect(n.slots[0]).toMatchObject({ slot_id: "default", enabled: true, weekdays: legacy.active_weekdays, draw_time: legacy.draw_time });
+    return slotOccurrences(n, n.slots[0]!, from, days);
+  };
 
   it("produces one occurrence per day for a daily schedule over a 4-day horizon", () => {
-    const occurrences = computeScheduledOccurrences(dailyFourLeafSchedule, "2026-01-15", 3);
-    expect(occurrences).toHaveLength(4); // day 0..3 inclusive
-    expect(occurrences.map((o) => o.dateISO)).toEqual([
-      "2026-01-15",
-      "2026-01-16",
-      "2026-01-17",
-      "2026-01-18",
-    ]);
+    const list = occurrences(dailyFourLeafSchedule, "2026-01-15", 3);
+    expect(list.map((o) => o.localDate)).toEqual(["2026-01-15", "2026-01-16", "2026-01-17", "2026-01-18"]);
   });
 
   it("computes sales_closes_at and sales_opens_at as offsets from draw_at", () => {
-    const [occurrence] = computeScheduledOccurrences(dailyFourLeafSchedule, "2026-01-15", 0);
-    expect(occurrence).toBeDefined();
+    const [occurrence] = occurrences(dailyFourLeafSchedule, "2026-01-15", 0);
     const drawAt = occurrence!.drawAt.getTime();
     expect(occurrence!.salesClosesAt.getTime()).toBe(drawAt - 30 * 60_000);
     expect(occurrence!.salesOpensAt.getTime()).toBe(drawAt - 24 * 60 * 60_000);
   });
 
   it("only includes active weekdays (Six Chance: Tuesday=2 and Friday=5 only)", () => {
-    const sixChanceSchedule: Schedule = { ...dailyFourLeafSchedule, active_weekdays: [2, 5] };
-    // 2026-01-15 is a Thursday; the week ahead has Friday (01-16, weekday 5) and the
-    // following Tuesday (01-20, weekday 2).
-    const occurrences = computeScheduledOccurrences(sixChanceSchedule, "2026-01-15", 6);
-    expect(occurrences.map((o) => o.dateISO)).toEqual(["2026-01-16", "2026-01-20"]);
+    // 2026-01-15 is a Thursday; the week ahead has Friday 01-16 and Tuesday 01-20.
+    const list = occurrences({ ...dailyFourLeafSchedule, active_weekdays: [2, 5] }, "2026-01-15", 6);
+    expect(list.map((o) => o.localDate)).toEqual(["2026-01-16", "2026-01-20"]);
   });
 
   it("skips a date listed as a SKIP exception even if its weekday is active", () => {
-    const withException: Schedule = {
-      ...dailyFourLeafSchedule,
-      exceptions: [{ date: "2026-01-16", action: "SKIP", reason: "Public holiday" }],
-    };
-    const occurrences = computeScheduledOccurrences(withException, "2026-01-15", 2);
-    expect(occurrences.map((o) => o.dateISO)).toEqual(["2026-01-15", "2026-01-17"]);
+    const list = occurrences({ ...dailyFourLeafSchedule, exceptions: [{ date: "2026-01-16", action: "SKIP", reason: "Public holiday" }] }, "2026-01-15", 2);
+    expect(list.map((o) => o.localDate)).toEqual(["2026-01-15", "2026-01-17"]);
   });
 });

@@ -13,7 +13,7 @@ export type AuthAttemptResultEnum = "FAILED_LOCKED" | "FAILED_PASSWORD" | "FAILE
 
 export type AwardStatusEnum = "ACTIVE" | "SUPERSEDED" | "VOID";
 
-export type AwardTypeEnum = "CASH" | "FREE_TICKET";
+export type AwardTypeEnum = "CASH" | "FREE_TICKET" | "MIXED";
 
 export type CalcRunStatusEnum = "APPROVED" | "COMPLETED" | "FAILED" | "PUBLISHED" | "RUNNING" | "SUPERSEDED";
 
@@ -230,10 +230,27 @@ export interface Draws {
   published_at: Timestamp | null;
   sales_closes_at: Timestamp;
   sales_opens_at: Timestamp;
+  schedule_claim: string | null;
+  schedule_timezone: string | null;
+  scheduled_draw_at: Timestamp | null;
+  scheduled_local_date: Timestamp | null;
+  scheduled_slot_id: string | null;
   settled_at: Timestamp | null;
   status: Generated<DrawStatusEnum>;
   updated_at: Generated<Timestamp>;
   youtube_live_url: string | null;
+}
+
+export interface ScheduledOccurrenceDismissals {
+  created_at: Generated<Timestamp>;
+  dismissed_by: string;
+  game_id: string;
+  id: Generated<string>;
+  local_date: Timestamp;
+  reason: string;
+  schedule_timezone: string;
+  scheduled_draw_at: Timestamp;
+  slot_id: string;
 }
 
 export interface DrawStatusHistory {
@@ -365,6 +382,18 @@ export interface Permissions {
   id: Generated<string>;
   module: string;
   risk_level: Generated<PermissionRiskEnum>;
+}
+
+export interface PrizeAwardComponents {
+  amount_toman: Int8 | null;
+  award_id: string;
+  calculation_details: Generated<Json>;
+  component_type: AwardTypeEnum;
+  created_at: Generated<Timestamp>;
+  free_ticket_quantity: number | null;
+  id: Generated<string>;
+  matched_combinations: number;
+  tier_code: string;
 }
 
 export interface PrizeAwards {
@@ -666,6 +695,7 @@ export interface DB {
   orders: Orders;
   outbox_events: OutboxEvents;
   permissions: Permissions;
+  prize_award_components: PrizeAwardComponents;
   prize_awards: PrizeAwards;
   prize_calculation_runs: PrizeCalculationRuns;
   prize_claim_award_links: PrizeClaimAwardLinks;
@@ -674,6 +704,7 @@ export interface DB {
   results: Results;
   role_permissions: RolePermissions;
   roles: Roles;
+  scheduled_occurrence_dismissals: ScheduledOccurrenceDismissals;
   sessions: Sessions;
   six_chance_results: SixChanceResults;
   six_chance_system_ticket_selections: SixChanceSystemTicketSelections;

@@ -4,6 +4,7 @@ import { generatePublicNumber, hashIdentifier } from "../../shared/identifiers.j
 import type { AuthRepository } from "./auth.repository.js";
 import { hashPassword, verifyDummyPassword, verifyPassword } from "./password.js";
 import { digestSessionToken, generateSessionToken } from "./session-token.js";
+import { SUPER_ADMIN_ROLE } from "./permissions.js";
 
 export interface RequestContext {
   ip: string | null;
@@ -277,11 +278,17 @@ export function createAuthService(repo: AuthRepository, env: Env) {
       return user;
     },
 
+    /** True when the admin holds an active SUPER_ADMIN role assignment right now. */
+    async isSuperAdmin(adminId: string): Promise<boolean> {
+      return (await repo.resolveAdminRoleCodes(adminId)).includes(SUPER_ADMIN_ROLE);
+    },
+
     async getAdminProfile(adminId: string) {
       const admin = await repo.findAdminById(adminId);
       if (!admin) throw new UnauthorizedError("Invalid or expired session.");
       const permissions = await repo.resolveAdminPermissionCodes(adminId);
-      return { admin, permissions };
+      const roles = await repo.resolveAdminRoleCodes(adminId);
+      return { admin, permissions, roles };
     },
 
     /** Exposed for later modules (e.g. Users' suspend/close action) — never called from a

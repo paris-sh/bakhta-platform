@@ -33,7 +33,118 @@ export const scheduleSchema = z.object({
   exceptions: z.array(scheduleExceptionSchema).default([]),
 });
 
-export type Schedule = z.infer<typeof scheduleSchema>;
+/** The single-time schedule of schema versions before slots (Six Chance 1–3, Four Leaf 1–2). */
+export type LegacySchedule = z.infer<typeof scheduleSchema>;
+/** @deprecated Use LegacySchedule or NormalizedSchedule. */
+export type Schedule = LegacySchedule;
+
+const HH_MM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+export function isValidTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Slot schedules (Six Chance schema 4, Four Leaf schema 3): any number of independent draw
+// times per game — e.g. Four Leaf daily at 14:00, 18:00 and 21:00. Each expected occurrence is
+// identified by (game, slot_id, intended local date); slot_id must therefore stay stable
+// across rule versions for the same recurring draw. The schedule NEVER creates draws: it only
+// drives reminders and prefills the SUPER_ADMIN's manual Create Draw form.
+export const scheduleSlotSchema = z.object({
+  slot_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/, "slot_id: lowercase letters, digits, - or _ (max 40)"),
+  enabled: z.boolean(),
+  label: z.string().trim().max(60).nullable().optional(),
+  // 0 = Sunday .. 6 = Saturday, evaluated in the slot's own timezone.
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1),
+  draw_time: z.string().regex(HH_MM, "draw_time must be 24h HH:MM"),
+  timezone: z.string().min(1).refine(isValidTimeZone, "must be a valid IANA timezone"),
+  sales_open_hours_before_draw: z.number().positive(),
+  // Sales always close strictly before the draw.
+  sales_close_minutes_before_draw: z.number().int().positive(),
+});
+
+export const slotScheduleExceptionSchema = scheduleExceptionSchema.extend({
+  // Absent: the date is skipped for every slot.
+  slot_id: z.string().optional(),
+});
+
+export const slotScheduleSchema = z
+  .object({
+    slots: z.array(scheduleSlotSchema).min(1),
+    exceptions: z.array(slotScheduleExceptionSchema).default([]),
+  })
+  .superRefine((sch, ctx) => {
+    const ids = new Set<string>();
+    const times = new Set<string>();
+    sch.slots.forEach((slot, i) => {
+      if (ids.has(slot.slot_id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["slots", i, "slot_id"], message: "slot_id must be unique" });
+      ids.add(slot.slot_id);
+      if (new Set(slot.weekdays).size !== slot.weekdays.length) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["slots", i, "weekdays"], message: "weekdays must not repeat" });
+      }
+      if (slot.sales_close_minutes_before_draw >= slot.sales_open_hours_before_draw * 60) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["slots", i, "sales_close_minutes_before_draw"], message: "sales must open before they close" });
+      }
+      if (!slot.enabled) return;
+      for (const d of slot.weekdays) {
+        const key = `${slot.timezone}|${d}|${slot.draw_time}`;
+        if (times.has(key)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["slots", i, "draw_time"], message: "two enabled slots share the same day and time" });
+        times.add(key);
+      }
+    });
+    sch.exceptions.forEach((e, i) => {
+      if (e.slot_id !== undefined && !ids.has(e.slot_id)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["exceptions", i, "slot_id"], message: "unknown slot_id" });
+      }
+    });
+  });
+
+export type ScheduleSlot = z.infer<typeof scheduleSlotSchema>;
+export interface NormalizedSchedule {
+  slots: ScheduleSlot[];
+  exceptions: { date: string; action: "SKIP"; reason: string; slot_id?: string | undefined }[];
+}
+
+/** The slot id a legacy single-time schedule is read as — and upgraded to — so the occurrence
+ * identity of its draws does not change when the game is moved to a slot schedule. */
+export const DEFAULT_SLOT_ID = "default";
+
+/**
+ * Reads any stored schedule (legacy single-time or slot-based) as slots. A legacy schedule
+ * becomes exactly one enabled slot with the same days, time, timezone and offsets, so its
+ * behavior is unchanged. Returns null when the schedule is missing or invalid.
+ */
+export function normalizeSchedule(raw: unknown): NormalizedSchedule | null {
+  const slots = slotScheduleSchema.safeParse(raw);
+  if (slots.success) return slots.data;
+  const legacy = scheduleSchema.safeParse(raw);
+  if (!legacy.success) return null;
+  const l = legacy.data;
+  return {
+    slots: [
+      {
+        slot_id: DEFAULT_SLOT_ID,
+        enabled: true,
+        label: null,
+        weekdays: l.active_weekdays,
+        draw_time: l.draw_time,
+        timezone: l.timezone,
+        sales_open_hours_before_draw: l.sales_open_hours_before_draw,
+        sales_close_minutes_before_draw: l.sales_close_minutes_before_draw,
+      },
+    ],
+    exceptions: l.exceptions,
+  };
+}
+
+/** The game's official timezone as recorded on a draw: its first slot's timezone. */
+export function scheduleTimezone(raw: unknown): string {
+  return normalizeSchedule(raw)?.slots[0]?.timezone ?? "Asia/Tehran";
+}
 
 const sixChanceTierSchema = z.discriminatedUnion("prize_type", [
   z.object({
@@ -101,12 +212,15 @@ export const sixChanceSystemPlayFields = {
   maximum_combinations_per_order: z.number().int().positive(),
 };
 
-export const sixChanceRulesV2Schema = sixChanceRulesV1Schema
-  .extend({
-    schema_version: z.literal(2),
-    selection: sixChanceRulesV1Schema.shape.selection.extend(sixChanceSystemPlayFields),
-  })
-  .superRefine((rules, ctx) => {
+const sixChanceRulesV2Base = sixChanceRulesV1Schema.extend({
+  schema_version: z.literal(2),
+  selection: sixChanceRulesV1Schema.shape.selection.extend(sixChanceSystemPlayFields),
+});
+
+function refineSystemPlay(
+  rules: { selection: z.infer<typeof sixChanceRulesV2Base>["selection"] },
+  ctx: z.RefinementCtx,
+) {
     const s = rules.selection;
     if (s.required_numbers_per_combination !== s.main_numbers.count) {
       ctx.addIssue({
@@ -122,7 +236,46 @@ export const sixChanceRulesV2Schema = sixChanceRulesV1Schema
         message: "must be at least maximum_combinations_per_line",
       });
     }
-  });
+}
+
+export const sixChanceRulesV2Schema = sixChanceRulesV2Base.superRefine(refineSystemPlay);
+
+// schema_version 3 = v2 with every payout source made explicit (approved Phase 6 rules):
+//   * an ordinary cash tier declares payout_mode FIXED_AMOUNT and amount_toman is THE payout;
+//     multiplier, when present, is display information only and never read by calculation;
+//   * claim_period_days: days after publication a prize can be claimed (default 90);
+//   * remainder_destination: where the lower-tier cap's rounding remainder goes;
+//   * minimum_jackpot_toman: the amount the jackpot resets to after a jackpot win;
+//   * jackpot_contribution_bps: share of the remaining sales (after lower-tier cash prizes)
+//     added to the next jackpot when nobody wins it (6000 = 60%).
+// Older snapshots stay readable under their own schema_version: calculation treats their
+// amount_toman as authoritative too, and uses the 90-day claim default when it is absent.
+const sixChanceTierV3Schema = z.discriminatedUnion("prize_type", [
+  z.object({ code: z.string().min(1), match: z.string().min(1), prize_type: z.literal("JACKPOT_POOL") }),
+  z.object({
+    code: z.string().min(1),
+    match: z.string().min(1),
+    prize_type: z.literal("CASH"),
+    payout_mode: z.literal("FIXED_AMOUNT"),
+    amount_toman: z.number().int().nonnegative(),
+    multiplier: z.number().positive().optional(),
+  }),
+  z.object({
+    code: z.string().min(1),
+    match: z.string().min(1),
+    prize_type: z.literal("FREE_TICKET"),
+    quantity: z.number().int().positive(),
+  }),
+]);
+
+export const sixChanceRulesV3Schema = sixChanceRulesV2Base
+  .extend({
+    schema_version: z.literal(3),
+    tiers: z.array(sixChanceTierV3Schema).min(1),
+    claim_period_days: z.number().int().positive(),
+    remainder_destination: z.string().min(1),
+  })
+  .superRefine(refineSystemPlay);
 
 export const fourLeafRulesV1Schema = z.object({
   schema_version: z.literal(1),
@@ -146,6 +299,29 @@ export const fourLeafRulesV1Schema = z.object({
   remainder_destination: z.string().min(1),
 });
 
+// schema_version 2 = v1 + an explicit claim period (days after publication; default 90).
+export const fourLeafRulesV2Schema = fourLeafRulesV1Schema.extend({
+  schema_version: z.literal(2),
+  claim_period_days: z.number().int().positive(),
+});
+
+// schema_version 4 (Six Chance) / 3 (Four Leaf) = the previous version with a slot schedule
+// (several independent draw times per day, each with its own stable slot_id).
+export const sixChanceRulesV4Schema = sixChanceRulesV2Base
+  .extend({
+    schema_version: z.literal(4),
+    schedule: slotScheduleSchema,
+    tiers: z.array(sixChanceTierV3Schema).min(1),
+    claim_period_days: z.number().int().positive(),
+    remainder_destination: z.string().min(1),
+  })
+  .superRefine(refineSystemPlay);
+
+export const fourLeafRulesV3Schema = fourLeafRulesV2Schema.extend({
+  schema_version: z.literal(3),
+  schedule: slotScheduleSchema,
+});
+
 type AnyRulesSchema = z.ZodType<{ schema_version: number }>;
 
 // Add a new schema_version key here when one is introduced — never replace or remove an
@@ -154,10 +330,19 @@ type AnyRulesSchema = z.ZodType<{ schema_version: number }>;
 const SIX_CHANCE_VALIDATORS: Record<number, AnyRulesSchema> = {
   1: sixChanceRulesV1Schema,
   2: sixChanceRulesV2Schema,
+  3: sixChanceRulesV3Schema,
+  4: sixChanceRulesV4Schema,
 };
 const FOUR_LEAF_VALIDATORS: Record<number, AnyRulesSchema> = {
   1: fourLeafRulesV1Schema,
+  2: fourLeafRulesV2Schema,
+  3: fourLeafRulesV3Schema,
 };
+
+/** The schema_version every NEW rule version must use. Older versions stay registered so
+ * stored rule versions and draw snapshots remain readable, but new rules must carry every
+ * explicit field (claim period, payout mode) so no payout source is ever implied. */
+export const CREATABLE_SCHEMA_VERSION: Record<"SIX_CHANCE" | "FOUR_LEAF", number> = { SIX_CHANCE: 4, FOUR_LEAF: 3 };
 
 export type GameType = "SIX_CHANCE" | "FOUR_LEAF";
 
@@ -179,5 +364,7 @@ export function supportedSchemaVersions(gameType: GameType): number[] {
 export type SixChanceRulesV1 = z.infer<typeof sixChanceRulesV1Schema>;
 export type SixChanceRulesV2 = z.infer<typeof sixChanceRulesV2Schema>;
 /** Any supported Six Chance rules payload (as stored in a draw snapshot). */
-export type SixChanceRules = SixChanceRulesV1 | SixChanceRulesV2;
+export type SixChanceRulesV3 = z.infer<typeof sixChanceRulesV3Schema>;
+export type SixChanceRulesV4 = z.infer<typeof sixChanceRulesV4Schema>;
+export type SixChanceRules = SixChanceRulesV1 | SixChanceRulesV2 | SixChanceRulesV3 | SixChanceRulesV4;
 export type FourLeafRulesV1 = z.infer<typeof fourLeafRulesV1Schema>;

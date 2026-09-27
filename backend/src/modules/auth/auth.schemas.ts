@@ -36,6 +36,7 @@ export const adminMeResponseSchema = z.object({
   adminNumber: z.string(),
   email: z.string(),
   status: z.string(),
+  roles: z.array(z.string()),
   permissions: z.array(z.string()),
 });
 

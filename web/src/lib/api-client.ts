@@ -9,6 +9,8 @@ import type {
   PublicTicketCheck,
   SessionResponse,
   Ticket,
+  PublicResultDetail,
+  PublicResultListItem,
 } from "./types";
 
 export class ApiError extends Error {
@@ -51,6 +53,9 @@ const CODE_REASON: Record<string, ApiErrorReason> = {
   FORBIDDEN: "forbidden",
   NOT_FOUND: "notFound",
   CONFLICT: "conflict",
+  SALES_NOT_OPEN_YET: "salesNotOpen",
+  SALES_CLOSED: "salesClosed",
+  DRAW_NOT_ON_SALE: "drawNotOpen",
   RATE_LIMITED: "rateLimited",
   INTERNAL_ERROR: "server",
 };
@@ -74,7 +79,8 @@ interface RequestOptions {
   idempotencyKey?: string;
 }
 
-async function request<T>(
+/** Shared JSON request helper (also used by the admin API client, lib/admin/api.ts). */
+export async function request<T>(
   method: string,
   path: string,
   body?: unknown,
@@ -117,6 +123,14 @@ async function request<T>(
 
 export const api = {
   listGames: () => request<Game[]>("GET", "/v1/games"),
+  listResults: (query: { page?: number; pageSize?: number; game?: string }) => {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== "") params.set(k, String(v));
+    const q = params.toString();
+    return request<{ page: number; pageSize: number; total: number; items: PublicResultListItem[] }>("GET", `/v1/results${q ? `?${q}` : ""}`);
+  },
+  getResult: (slug: string, drawNumber: string) =>
+    request<PublicResultDetail>("GET", `/v1/results/${encodeURIComponent(slug)}/${encodeURIComponent(drawNumber)}`),
   getGame: (slug: string) => request<Game>("GET", `/v1/games/${encodeURIComponent(slug)}`),
   getNextDraw: (slug: string) =>
     request<Draw>("GET", `/v1/games/${encodeURIComponent(slug)}/draws/next`),

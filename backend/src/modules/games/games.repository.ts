@@ -1,6 +1,40 @@
-import type { Selectable } from "kysely";
+import type { Selectable, Transaction } from "kysely";
 import type { Database } from "../../db/client.js";
-import type { GameRuleVersions, GameStatusEnum } from "../../db/types.js";
+import type { DB, GameRuleVersions, GameStatusEnum } from "../../db/types.js";
+
+/** Audit context written in the same transaction as the change it records. */
+export interface TxAudit {
+  /** null = a SYSTEM action (e.g. a documented maintenance step), never attributed to a person. */
+  actorAdminId: string | null;
+  reason: string;
+  requestId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+async function writeAudit(
+  trx: Transaction<DB>,
+  audit: TxAudit,
+  entry: { action: string; entityType: string; entityId: string; oldValues?: unknown; newValues?: unknown; severity?: string },
+) {
+  await trx
+    .insertInto("audit_logs")
+    .values({
+      actor_type: audit.actorAdminId ? "ADMIN" : "SYSTEM",
+      actor_admin_id: audit.actorAdminId,
+      action: entry.action,
+      entity_type: entry.entityType,
+      entity_id: entry.entityId,
+      old_values: entry.oldValues === undefined ? null : JSON.stringify(entry.oldValues),
+      new_values: entry.newValues === undefined ? null : JSON.stringify(entry.newValues),
+      reason: audit.reason,
+      request_id: audit.requestId,
+      ip_address: audit.ipAddress,
+      user_agent: audit.userAgent,
+      ...(entry.severity ? { severity: entry.severity } : {}),
+    })
+    .execute();
+}
 
 export function createGamesRepository(db: Database) {
   return {
@@ -176,6 +210,116 @@ export function createGamesRepository(db: Database) {
           return { outcome: "not_draft" as const };
         }
         return { outcome: "activated" as const, row: activated };
+      });
+    },
+
+    /**
+     * "Save changes" on the current game settings: in ONE transaction, create a new rule
+     * version and make it ACTIVE, retiring the previous ACTIVE one. Existing draws keep the
+     * rules they snapshotted; only draws created afterwards use the new version.
+     */
+    async saveSettingsAsNewActiveVersion(input: {
+      gameId: string;
+      gameType: "SIX_CHANCE" | "FOUR_LEAF";
+      rules: Record<string, unknown>;
+      rulesHash: Buffer;
+      changeReason: string;
+      adminId: string;
+      audit: TxAudit;
+    }): Promise<
+      | { outcome: "saved"; row: Selectable<GameRuleVersions>; previous: Selectable<GameRuleVersions> | undefined }
+      | { outcome: "concurrent_conflict" }
+    > {
+      return db.transaction().execute(async (trx) => {
+        // Lock the game row so two saves for the same game serialize.
+        await trx.selectFrom("games").select("id").where("id", "=", input.gameId).forUpdate().executeTakeFirstOrThrow();
+        const previous = await trx
+          .selectFrom("game_rule_versions")
+          .selectAll()
+          .where("game_id", "=", input.gameId)
+          .where("status", "=", "ACTIVE")
+          .forUpdate()
+          .executeTakeFirst();
+        const max = await trx
+          .selectFrom("game_rule_versions")
+          .select((eb) => eb.fn.max("version_number").as("v"))
+          .where("game_id", "=", input.gameId)
+          .executeTakeFirst();
+        const now = new Date();
+        if (previous) {
+          const retired = await trx
+            .updateTable("game_rule_versions")
+            .set({ status: "RETIRED", retired_at: now })
+            .where("id", "=", previous.id)
+            .where("status", "=", "ACTIVE")
+            .executeTakeFirst();
+          if (retired.numUpdatedRows === 0n) return { outcome: "concurrent_conflict" as const };
+        }
+        const row = await trx
+          .insertInto("game_rule_versions")
+          .values({
+            game_id: input.gameId,
+            game_type: input.gameType,
+            version_number: Number(max?.v ?? 0) + 1,
+            status: "ACTIVE",
+            rules: JSON.stringify(input.rules),
+            rules_hash: input.rulesHash,
+            change_reason: input.changeReason,
+            created_by: input.adminId,
+            activated_by: input.adminId,
+            activated_at: now,
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        await writeAudit(trx, input.audit, {
+          action: "game_rule_versions.save_settings",
+          entityType: "game_rule_versions",
+          entityId: row.id,
+          oldValues: previous ? { version_number: previous.version_number, rules: previous.rules, status: "ACTIVE" } : null,
+          newValues: { version_number: row.version_number, rules: row.rules, status: "ACTIVE", previous_retired: previous?.version_number ?? null },
+        });
+        return { outcome: "saved" as const, row, previous };
+      });
+    },
+
+    /**
+     * Deletes an unused DRAFT rule version. Refuses ACTIVE/RETIRED versions and any version a
+     * draw, ticket or calculation run references (the foreign keys would refuse it too).
+     */
+    async discardDraftRuleVersion(ruleVersionId: string, audit: TxAudit): Promise<
+      | { outcome: "discarded"; row: Selectable<GameRuleVersions> }
+      | { outcome: "not_found" }
+      | { outcome: "not_draft"; status: string }
+      | { outcome: "referenced"; draws: number; tickets: number; runs: number }
+    > {
+      return db.transaction().execute(async (trx) => {
+        const row = await trx.selectFrom("game_rule_versions").selectAll().where("id", "=", ruleVersionId).forUpdate().executeTakeFirst();
+        if (!row) return { outcome: "not_found" as const };
+        if (row.status !== "DRAFT") return { outcome: "not_draft" as const, status: row.status };
+        const n = (row: { n: string } | undefined) => Number(row?.n ?? 0);
+        const draws = n(await trx.selectFrom("draws").select((eb) => eb.fn.countAll<string>().as("n")).where("current_rule_version_id", "=", ruleVersionId).executeTakeFirst());
+        const tickets = n(await trx.selectFrom("tickets").select((eb) => eb.fn.countAll<string>().as("n")).where("rule_version_id", "=", ruleVersionId).executeTakeFirst());
+        const runs = n(await trx.selectFrom("prize_calculation_runs").select((eb) => eb.fn.countAll<string>().as("n")).where("rule_version_id", "=", ruleVersionId).executeTakeFirst());
+        if (draws + tickets + runs > 0) return { outcome: "referenced" as const, draws, tickets, runs };
+        await trx.deleteFrom("game_rule_versions").where("id", "=", ruleVersionId).where("status", "=", "DRAFT").execute();
+        // The row is gone; its complete content lives on in the audit trail.
+        await writeAudit(trx, audit, {
+          action: "game_rule_versions.discard_draft",
+          entityType: "game_rule_versions",
+          entityId: row.id,
+          oldValues: {
+            game_id: row.game_id,
+            version_number: row.version_number,
+            status: row.status,
+            rules: row.rules,
+            change_reason: row.change_reason,
+            created_by: row.created_by,
+            created_at: row.created_at,
+          },
+          newValues: { discarded: true },
+          severity: "WARNING",
+        });
+        return { outcome: "discarded" as const, row };
       });
     },
   };

@@ -83,7 +83,7 @@ export function registerOrdersRoutes(
   typed.get(
     "/v1/orders/:id",
     {
-      preHandler: [authenticate, requirePrincipalType("USER")],
+      onRequest: [authenticate, requirePrincipalType("USER")],
       schema: { params: orderIdParamsSchema, response: { 200: orderResponseSchema } },
     },
     async (request) => {
@@ -95,7 +95,7 @@ export function registerOrdersRoutes(
   typed.get(
     "/v1/me/orders",
     {
-      preHandler: [authenticate, requirePrincipalType("USER")],
+      onRequest: [authenticate, requirePrincipalType("USER")],
       schema: { response: { 200: orderListResponseSchema } },
     },
     async (request) => {
@@ -107,7 +107,7 @@ export function registerOrdersRoutes(
   typed.get(
     "/v1/me/tickets",
     {
-      preHandler: [authenticate, requirePrincipalType("USER")],
+      onRequest: [authenticate, requirePrincipalType("USER")],
       schema: { response: { 200: ticketListResponseSchema } },
     },
     async (request) => {
