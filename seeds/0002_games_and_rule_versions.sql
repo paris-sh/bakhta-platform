@@ -111,10 +111,10 @@ BEGIN
   -- ------------------------------------------------------------------
   -- Six Chance rule schema_version 2: system play (migration 0037)
   -- ------------------------------------------------------------------
-  -- Built from the CURRENTLY ACTIVE Six Chance rules (so any value an admin has already
-  -- changed, e.g. the price, carries over), plus the system-play limits below, as the next
-  -- version_number — then activated, retiring the previous active version exactly like the
-  -- admin activation endpoint does. Draws already created keep their own snapshot (a v1
+  -- Built from the CURRENTLY ACTIVE Six Chance rules (tiers, schedule, jackpot settings carry
+  -- over), with the final system-play defaults below — including the per-combination price —
+  -- as the next version_number, then activated, retiring the previous active version exactly
+  -- like the admin activation endpoint does. Draws already created keep their own snapshot (a v1
   -- draw stays exact-pick only); draws generated afterwards snapshot this version.
   -- Idempotent: skipped once any Six Chance rule version with schema_version >= 2 exists.
   IF NOT EXISTS (
@@ -126,16 +126,18 @@ BEGIN
     WHERE game_id = v_six_chance_game_id AND status = 'ACTIVE';
 
     v_six_chance_rules := jsonb_set(v_six_chance_rules, '{schema_version}', to_jsonb(2));
+    -- Final default price of ONE combination (a system line costs price × combinations).
+    v_six_chance_rules := jsonb_set(v_six_chance_rules, '{ticket_price_toman}', to_jsonb(100000));
     v_six_chance_rules := jsonb_set(
       v_six_chance_rules, '{selection}',
       (v_six_chance_rules -> 'selection') || jsonb_build_object(
         'required_numbers_per_combination', 6,
         'maximum_selected_numbers_per_line', 12,
         'maximum_selected_symbols_per_line', 5,
-        -- C(12,6) = 924: one symbol with the largest allowed pool, or e.g. 10 numbers × 4
-        -- symbols (840); larger lines are rejected.
-        'maximum_combinations_per_line', 1000,
-        'maximum_combinations_per_order', 5000
+        -- The largest line the pool limits allow is C(12,6) × 5 = 4620, so every line within
+        -- 12 numbers and 5 symbols fits under the per-line cap.
+        'maximum_combinations_per_line', 5000,
+        'maximum_combinations_per_order', 25000
       )
     );
 
