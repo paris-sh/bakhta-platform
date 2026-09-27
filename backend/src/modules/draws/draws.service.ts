@@ -4,6 +4,7 @@ import type { GamesRepository } from "../games/games.repository.js";
 import { scheduleSchema } from "../games/rules.schemas.js";
 import type { DrawsRepository } from "./draws.repository.js";
 import { computeScheduledOccurrences } from "./schedule.js";
+import { drawSalesState } from "./sales-window.js";
 
 export interface AuditContext {
   requestId: string | null;
@@ -27,7 +28,7 @@ function toDrawShape(draw: {
   youtube_live_url: string | null;
   published_at: Date | null;
   settled_at: Date | null;
-}) {
+}, now: Date = new Date()) {
   return {
     id: draw.id,
     gameId: draw.game_id,
@@ -35,6 +36,8 @@ function toDrawShape(draw: {
     status: draw.status,
     salesOpensAt: draw.sales_opens_at.toISOString(),
     salesClosesAt: draw.sales_closes_at.toISOString(),
+    // Server-side verdict (see sales-window.ts): a SALES_OPEN row is not necessarily saleable.
+    salesState: drawSalesState(draw, now),
     drawAt: draw.draw_at.toISOString(),
     officialTimezone: draw.official_timezone,
     currentRuleVersionId: draw.current_rule_version_id,
@@ -81,7 +84,7 @@ export function createDrawsService(
       const game = await gamesRepo.findGameById(gameId);
       if (!game) throw new NotFoundError(`No game found with id "${gameId}".`);
       const draws = await repo.listDrawsForGame(gameId);
-      return draws.map(toDrawShape);
+      return draws.map((d) => toDrawShape(d));
     },
 
     async getDraw(id: string) {
@@ -174,7 +177,7 @@ export function createDrawsService(
         });
       }
 
-      return created.map(toDrawShape);
+      return created.map((d) => toDrawShape(d));
     },
 
     async recordEvidence(

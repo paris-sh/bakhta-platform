@@ -41,6 +41,22 @@ export class ConflictError extends AppError {
   readonly code = "CONFLICT";
 }
 
+/** A purchase or confirmation attempted outside the draw's sales window (409, specific code). */
+export class SalesNotOpenYetError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "SALES_NOT_OPEN_YET";
+}
+
+export class SalesClosedError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "SALES_CLOSED";
+}
+
+export class DrawNotOnSaleError extends AppError {
+  readonly statusCode = 409;
+  readonly code = "DRAW_NOT_ON_SALE";
+}
+
 export class ConfirmationRequiredError extends AppError {
   readonly statusCode = 428;
   readonly code = "CONFIRMATION_REQUIRED";

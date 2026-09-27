@@ -57,6 +57,8 @@ export interface Draw {
   status: string;
   salesOpensAt: string;
   salesClosesAt: string;
+  /** Server verdict at response time; only OPEN is purchasable (the server re-checks on order). */
+  salesState: "UPCOMING" | "OPEN" | "CLOSED" | "NOT_ON_SALE";
   drawAt: string;
   officialTimezone: string;
   currentRuleVersionId: string;

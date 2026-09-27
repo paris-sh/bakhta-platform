@@ -1,3 +1,4 @@
+import { ADMIN_PERMISSIONS } from "../auth/permissions.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { createAuthenticateHook } from "../../plugins/authenticate.js";
@@ -19,9 +20,9 @@ import {
 import type { AuditContext, DrawsService } from "./draws.service.js";
 
 const PERMISSIONS = {
-  VIEW: "draws.view",
-  CREATE: "draws.create",
-  MANAGE_EVIDENCE: "draws.manage_evidence",
+  VIEW: ADMIN_PERMISSIONS.DRAWS_VIEW,
+  CREATE: ADMIN_PERMISSIONS.DRAWS_CREATE,
+  MANAGE_EVIDENCE: ADMIN_PERMISSIONS.DRAWS_MANAGE_EVIDENCE,
 } as const;
 
 function auditContext(request: FastifyRequest): AuditContext {

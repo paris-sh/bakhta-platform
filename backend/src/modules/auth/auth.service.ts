@@ -281,7 +281,8 @@ export function createAuthService(repo: AuthRepository, env: Env) {
       const admin = await repo.findAdminById(adminId);
       if (!admin) throw new UnauthorizedError("Invalid or expired session.");
       const permissions = await repo.resolveAdminPermissionCodes(adminId);
-      return { admin, permissions };
+      const roles = await repo.resolveAdminRoleCodes(adminId);
+      return { admin, permissions, roles };
     },
 
     /** Exposed for later modules (e.g. Users' suspend/close action) — never called from a

@@ -289,6 +289,8 @@ export function createGamesService(repo: GamesRepository, audit: AuditService) {
         entityType: "game_rule_versions",
         entityId: ruleVersionId,
         newValues: { status: "ACTIVE", version_number: result.row.version_number },
+        // The version's own change reason is the audit reason for putting it into effect.
+        reason: result.row.change_reason,
         requestId: ctx.requestId,
         ipAddress: ctx.ipAddress,
         userAgent: ctx.userAgent,

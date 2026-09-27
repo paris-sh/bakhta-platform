@@ -22,6 +22,9 @@ import { createDrawsService } from "./modules/draws/draws.service.js";
 import { createOrdersRepository } from "./modules/orders/orders.repository.js";
 import { registerOrdersRoutes } from "./modules/orders/orders.routes.js";
 import { createOrdersService } from "./modules/orders/orders.service.js";
+import { createAdminRepository } from "./modules/admin/admin.repository.js";
+import { registerAdminRoutes } from "./modules/admin/admin.routes.js";
+import { createAdminService } from "./modules/admin/admin.service.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 
 declare module "fastify" {
@@ -76,6 +79,9 @@ export function buildApp(env: Env, db: Database): FastifyInstance {
   const ordersRepository = createOrdersRepository(db);
   const ordersService = createOrdersService(ordersRepository);
   registerOrdersRoutes(app, ordersService, authService, env);
+
+  const adminService = createAdminService(createAdminRepository(db), ordersRepository);
+  registerAdminRoutes(app, adminService, authService);
 
   app.get(
     "/health",

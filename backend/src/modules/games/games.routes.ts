@@ -1,3 +1,4 @@
+import { ADMIN_PERMISSIONS } from "../auth/permissions.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import type { AuthService } from "../auth/auth.service.js";
@@ -23,9 +24,9 @@ import type { GamesService } from "./games.service.js";
 // Administration-module concern (not yet built) — until a role is granted these, no ADMIN
 // can reach the corresponding endpoint, which is the correct default-deny posture.
 const PERMISSIONS = {
-  VIEW: "games.view",
-  EDIT: "games.edit",
-  ACTIVATE_RULE_VERSION: "games.activate_rule_version",
+  VIEW: ADMIN_PERMISSIONS.GAMES_VIEW,
+  EDIT: ADMIN_PERMISSIONS.GAMES_EDIT,
+  ACTIVATE_RULE_VERSION: ADMIN_PERMISSIONS.GAMES_ACTIVATE_RULE_VERSION,
 } as const;
 
 function auditContext(request: FastifyRequest): AuditContext {

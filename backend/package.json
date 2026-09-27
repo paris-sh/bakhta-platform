@@ -18,6 +18,7 @@
     "db:rollback": "tsx scripts/rollback.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:generate-types": "tsx scripts/generate-db-types.ts",
+    "admin:set-password": "tsx scripts/admin-set-password.ts",
     "test:pgtap": "tsx scripts/run-pgtap.ts",
     "test:concurrency": "tsx scripts/run-concurrency.ts"
   },

@@ -438,6 +438,10 @@ describe("orders & tickets", () => {
         payload: { drawId: draw.id, guestEmail: "x@test.invalid", tickets: [{ fourLeafNumber: "1234" }] },
       });
       expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("SALES_NOT_OPEN_YET");
+      expect(response.json().error.details.salesOpensAt).toBe(draw.sales_opens_at.toISOString());
+      const orders = await db.selectFrom("orders").select("id").where("draw_id", "=", draw.id).execute();
+      expect(orders).toHaveLength(0);
     });
 
     it("rejects placing an order after the sales cutoff has passed", async () => {
@@ -457,6 +461,7 @@ describe("orders & tickets", () => {
         payload: { drawId: draw.id, guestEmail: "x@test.invalid", tickets: [{ fourLeafNumber: "1234" }] },
       });
       expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("SALES_CLOSED");
     });
 
     it("rejects placing an order against a draw that is not SALES_OPEN", async () => {
@@ -474,6 +479,7 @@ describe("orders & tickets", () => {
         payload: { drawId: draw.id, guestEmail: "x@test.invalid", tickets: [{ fourLeafNumber: "1234" }] },
       });
       expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("DRAW_NOT_ON_SALE");
     });
   });
 
@@ -558,6 +564,7 @@ describe("orders & tickets", () => {
 
       const confirm = await app.inject({ method: "POST", url: `/v1/dev/orders/${orderId}/confirm` });
       expect(confirm.statusCode).toBe(409);
+      expect(confirm.json().error.code).toBe("SALES_CLOSED");
 
       const order = await db.selectFrom("orders").selectAll().where("id", "=", orderId).executeTakeFirstOrThrow();
       expect(order.status).toBe("PENDING_PAYMENT");

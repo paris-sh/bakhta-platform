@@ -5,6 +5,7 @@ import type {
   SessionPrincipalEnum,
   SessionStatusEnum,
 } from "../../db/types.js";
+import { ALL_ADMIN_PERMISSIONS, SUPER_ADMIN_ROLE } from "./permissions.js";
 
 export function createAuthRepository(db: Database) {
   return {
@@ -67,7 +68,22 @@ export function createAuthRepository(db: Database) {
         .executeTakeFirst();
     },
 
-    /** Permission codes granted to an admin via every currently-active role assignment. */
+    /** Role codes of every currently-active role assignment. */
+    async resolveAdminRoleCodes(adminId: string): Promise<string[]> {
+      const rows = await db
+        .selectFrom("admin_role_assignments as ara")
+        .innerJoin("roles as r", "r.id", "ara.role_id")
+        .select("r.code")
+        .distinct()
+        .where("ara.admin_id", "=", adminId)
+        .where("ara.revoked_at", "is", null)
+        .execute();
+      return rows.map((r) => r.code).sort();
+    },
+
+    /** Permission codes granted to an admin via every currently-active role assignment.
+     * An active SUPER_ADMIN assignment resolves to the whole permission catalog (plus any
+     * extra codes granted in the database), so the top role can never lack a permission. */
     async resolveAdminPermissionCodes(adminId: string): Promise<string[]> {
       const rows = await db
         .selectFrom("admin_role_assignments as ara")
@@ -78,7 +94,12 @@ export function createAuthRepository(db: Database) {
         .where("ara.admin_id", "=", adminId)
         .where("ara.revoked_at", "is", null)
         .execute();
-      return rows.map((r) => r.code);
+      const codes = new Set(rows.map((r) => r.code));
+      const roles = await this.resolveAdminRoleCodes(adminId);
+      if (roles.includes(SUPER_ADMIN_ROLE)) {
+        for (const code of ALL_ADMIN_PERMISSIONS) codes.add(code);
+      }
+      return [...codes].sort();
     },
 
     async createSession(input: {

@@ -3,6 +3,7 @@ import type { GameTypeEnum } from "../../db/types.js";
 import { generatePublicNumber } from "../../shared/identifiers.js";
 import { isUniqueViolation } from "../../shared/db-errors.js";
 import { generateClaimToken } from "./claim-token.js";
+import { drawSalesState } from "../draws/sales-window.js";
 
 export type TicketSelectionShape =
   | { kind: "FOUR_LEAF"; numberValue: string }
@@ -33,16 +34,20 @@ export interface CreateOrderInput {
 
 export type CreateOrderOutcome =
   | { outcome: "created"; orderId: string }
-  | { outcome: "draw_not_open" }
-  | { outcome: "sales_not_open_yet" }
-  | { outcome: "sales_closed" }
+  | SalesWindowRejection
   | { outcome: "idempotent_conflict" };
+
+/** Why a draw could not be sold (or an order for it confirmed) at the checked instant. */
+export type SalesWindowRejection =
+  | { outcome: "draw_not_open"; status: string }
+  | { outcome: "sales_not_open_yet"; salesOpensAt: Date }
+  | { outcome: "sales_closed"; salesClosesAt: Date };
 
 export type ConfirmOrderOutcome =
   | { outcome: "confirmed"; orderId: string }
   | { outcome: "not_found" }
   | { outcome: "invalid_status"; currentStatus: string }
-  | { outcome: "sales_closed" };
+  | SalesWindowRejection;
 
 async function attachSelections<T extends { id: string; game_type: GameTypeEnum }>(
   db: Database,
@@ -99,7 +104,25 @@ async function attachSelections<T extends { id: string; game_type: GameTypeEnum 
   });
 }
 
-export function createOrdersRepository(db: Database) {
+/** Applies the shared sales-window rule (see draws/sales-window.ts) to a locked draw row. */
+function checkSalesWindow(
+  draw: { status: string; sales_opens_at: Date; sales_closes_at: Date },
+  now: Date,
+): SalesWindowRejection | null {
+  switch (drawSalesState(draw, now)) {
+    case "OPEN":
+      return null;
+    case "UPCOMING":
+      return { outcome: "sales_not_open_yet", salesOpensAt: draw.sales_opens_at };
+    case "CLOSED":
+      return { outcome: "sales_closed", salesClosesAt: draw.sales_closes_at };
+    case "NOT_ON_SALE":
+      return { outcome: "draw_not_open", status: draw.status };
+  }
+}
+
+/** `clock` is injectable so the sales-window boundaries can be tested at exact instants. */
+export function createOrdersRepository(db: Database, clock: () => Date = () => new Date()) {
   return {
     async findDrawById(drawId: string) {
       return db.selectFrom("draws").selectAll().where("id", "=", drawId).executeTakeFirst();
@@ -191,10 +214,8 @@ export function createOrdersRepository(db: Database) {
             .forUpdate()
             .executeTakeFirstOrThrow();
 
-          if (draw.status !== "SALES_OPEN") return { outcome: "draw_not_open" as const };
-          const now = new Date();
-          if (now < draw.sales_opens_at) return { outcome: "sales_not_open_yet" as const };
-          if (now > draw.sales_closes_at) return { outcome: "sales_closed" as const };
+          const rejection = checkSalesWindow(draw, clock());
+          if (rejection) return rejection;
 
           // Each line is charged unit price × its (server-computed) combination count; the
           // same product is stored per ticket as the generated line_total_toman column.
@@ -315,8 +336,11 @@ export function createOrdersRepository(db: Database) {
           .where("id", "=", order.draw_id)
           .forUpdate()
           .executeTakeFirstOrThrow();
-        const now = new Date();
-        if (now > draw.sales_closes_at) return { outcome: "sales_closed" as const };
+        // Confirmation must also land inside the window: never confirm an order for a draw
+        // whose sales have not opened, have closed, or that has left SALES_OPEN.
+        const now = clock();
+        const rejection = checkSalesWindow(draw, now);
+        if (rejection) return rejection;
 
         await trx
           .updateTable("orders")

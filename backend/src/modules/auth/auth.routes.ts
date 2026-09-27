@@ -96,12 +96,13 @@ export function registerAuthRoutes(app: FastifyInstance, authService: AuthServic
     },
     async (request) => {
       const principal = request.principal as { type: "ADMIN"; adminId: string };
-      const { admin, permissions } = await authService.getAdminProfile(principal.adminId);
+      const { admin, permissions, roles } = await authService.getAdminProfile(principal.adminId);
       return {
         id: admin.id,
         adminNumber: admin.admin_number,
         email: admin.email,
         status: admin.status,
+        roles,
         permissions,
       };
     },

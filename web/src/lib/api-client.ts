@@ -51,6 +51,9 @@ const CODE_REASON: Record<string, ApiErrorReason> = {
   FORBIDDEN: "forbidden",
   NOT_FOUND: "notFound",
   CONFLICT: "conflict",
+  SALES_NOT_OPEN_YET: "salesNotOpen",
+  SALES_CLOSED: "salesClosed",
+  DRAW_NOT_ON_SALE: "drawNotOpen",
   RATE_LIMITED: "rateLimited",
   INTERNAL_ERROR: "server",
 };
@@ -74,7 +77,8 @@ interface RequestOptions {
   idempotencyKey?: string;
 }
 
-async function request<T>(
+/** Shared JSON request helper (also used by the admin API client, lib/admin/api.ts). */
+export async function request<T>(
   method: string,
   path: string,
   body?: unknown,

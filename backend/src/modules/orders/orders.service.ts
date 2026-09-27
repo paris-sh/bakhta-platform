@@ -1,4 +1,33 @@
-import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../shared/errors.js";
+import {
+  ConflictError,
+  DrawNotOnSaleError,
+  ForbiddenError,
+  NotFoundError,
+  SalesClosedError,
+  SalesNotOpenYetError,
+  ValidationError,
+} from "../../shared/errors.js";
+import type { SalesWindowRejection } from "./orders.repository.js";
+
+/** Maps a sales-window rejection to its specific API error. Messages are stable: the web
+ * client keys its translations on them (and on the codes). */
+function salesWindowError(rejection: SalesWindowRejection, stage: "create" | "confirm") {
+  switch (rejection.outcome) {
+    case "sales_not_open_yet":
+      return new SalesNotOpenYetError("Sales have not opened yet for this draw.", {
+        salesOpensAt: rejection.salesOpensAt.toISOString(),
+      });
+    case "sales_closed":
+      return new SalesClosedError(
+        stage === "confirm"
+          ? "Sales have closed for this draw since the order was created."
+          : "Sales have closed for this draw.",
+        { salesClosesAt: rejection.salesClosesAt.toISOString() },
+      );
+    case "draw_not_open":
+      return new DrawNotOnSaleError("This draw is not currently open for sales.", { drawStatus: rejection.status });
+  }
+}
 import { resolveRulesValidator } from "../games/rules.schemas.js";
 import type { FourLeafRulesV1, SixChanceRules } from "../games/rules.schemas.js";
 import type { NewTicketInput, OrdersRepository, TicketSelectionShape } from "./orders.repository.js";
@@ -215,11 +244,9 @@ export function createOrdersService(repo: OrdersRepository) {
 
       switch (result.outcome) {
         case "draw_not_open":
-          throw new ConflictError("This draw is not currently open for sales.");
         case "sales_not_open_yet":
-          throw new ConflictError("Sales have not opened yet for this draw.");
         case "sales_closed":
-          throw new ConflictError("Sales have closed for this draw.");
+          throw salesWindowError(result, "create");
         case "idempotent_conflict": {
           const winner = await repo.findOrderByIdempotencyKey(idempotencyKey);
           if (!winner) throw new Error("Idempotency conflict but no winning order found");
@@ -284,8 +311,12 @@ export function createOrdersService(repo: OrdersRepository) {
           `Order cannot be confirmed from its current status (${result.currentStatus}).`,
         );
       }
-      if (result.outcome === "sales_closed") {
-        throw new ConflictError("Sales have closed for this draw since the order was created.");
+      if (
+        result.outcome === "sales_closed" ||
+        result.outcome === "sales_not_open_yet" ||
+        result.outcome === "draw_not_open"
+      ) {
+        throw salesWindowError(result, "confirm");
       }
 
       const order = await repo.findOrderById(orderId);

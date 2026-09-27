@@ -36,6 +36,14 @@ computes a real Argon2id hash and is the only thing ever allowed to write to
 `admin_credentials` for this account. This is a deliberate handoff boundary, not a
 placeholder to "fill in later" with another hardcoded value.
 
+That command is `npm run admin:set-password` (in `backend/`). It targets
+`BAKHTA_BOOTSTRAP_ADMIN_EMAIL` (or `-- --email <address>` for any active `SUPER_ADMIN`), reads
+the new password twice from hidden terminal input only, and refuses pipes, arguments,
+environment variables and files, so the password never reaches shell history, logs, seeds or
+Git. It stores an Argon2id hash with the app's parameters and, in the same transaction, signs
+out the admin's active sessions and writes a `SYSTEM` audit entry that contains no secret.
+Running it again resets the password.
+
 `seeds/0002_games_and_rule_versions.sql` needs no email or variable of its own — it looks up
 "whichever admin currently holds an active `SUPER_ADMIN` assignment" dynamically, so it never
 hardcodes or re-references the bootstrap email either.

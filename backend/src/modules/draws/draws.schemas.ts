@@ -12,6 +12,8 @@ export const drawResponseSchema = z.object({
   status: z.string(),
   salesOpensAt: z.string(),
   salesClosesAt: z.string(),
+  /** UPCOMING | OPEN | CLOSED | NOT_ON_SALE — only OPEN may be purchased. */
+  salesState: z.enum(["UPCOMING", "OPEN", "CLOSED", "NOT_ON_SALE"]),
   drawAt: z.string(),
   officialTimezone: z.string(),
   currentRuleVersionId: z.string().uuid(),
