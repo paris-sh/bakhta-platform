@@ -1,19 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ApiError, api } from "@/lib/api-client";
+import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { EmptyMessage, ErrorMessage, LoadingMessage } from "@/components/StatusMessage";
-import { formatToman } from "@/lib/format";
-import { ticketOutcomeFa, ticketStatusFa } from "@/lib/labels";
+import { useI18n } from "@/lib/i18n/locale-context";
+import { EmptyMessage, ErrorMessage, LoadingMessage, Notice } from "@/components/StatusMessage";
+import { PageHeader } from "@/components/PageHeader";
+import { StatusBadge } from "@/components/StatusBadge";
+import { SelectionDisplay } from "@/components/SelectionDisplay";
+import { ArrowIcon, TicketIcon } from "@/components/icons";
 import type { Ticket } from "@/lib/types";
 
 export default function MyTicketsPage() {
   const { token, isLoading } = useAuth();
+  const { t, errorText, money } = useI18n();
   const router = useRouter();
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
     if (isLoading) return;
@@ -21,47 +26,58 @@ export default function MyTicketsPage() {
       router.replace("/login");
       return;
     }
-    api
-      .myTickets(token)
-      .then(setTickets)
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "خطا در دریافت بلیط‌ها."));
+    api.myTickets(token).then(setTickets).catch(setError);
   }, [isLoading, token, router]);
 
-  if (isLoading || (!error && tickets === null)) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-10">
-        <LoadingMessage />
-      </div>
-    );
-  }
-
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-10 sm:px-6">
-      <h1 className="text-2xl font-extrabold">بلیط‌های من</h1>
-      <p className="text-sm text-muted">
-        بلیط‌های ثبت‌شده با حساب کاربری هیچ کد ادعا (Claim Token) ندارند — چون مالکیت آن‌ها مستقیماً
-        به حساب شما متصل است.
-      </p>
-      {error && <ErrorMessage message={error} />}
-      {!error && tickets?.length === 0 && <EmptyMessage label="هنوز بلیطی ندارید." />}
-      {tickets?.map((t) => (
-        <div key={t.id} className="rounded-xl border border-border bg-surface p-4">
-          <div className="flex items-center justify-between">
-            <span className="font-mono font-bold" dir="ltr">
-              {t.publicCode}
-            </span>
-            <span className="text-sm text-muted">
-              {ticketStatusFa(t.status)} · {ticketOutcomeFa(t.outcomeStatus)}
-            </span>
-          </div>
-          <p className="mt-1 text-sm">
-            {t.selection.kind === "FOUR_LEAF"
-              ? `عدد: ${t.selection.numberValue}`
-              : `اعداد: ${t.selection.numbers.join(" - ")} | نماد شانس: ${t.selection.symbol}`}
-          </p>
-          <p className="mt-1 font-bold text-brand">{formatToman(t.unitPriceToman)}</p>
-        </div>
-      ))}
+    <div className="container-page flex max-w-4xl flex-col gap-6 py-10">
+      <PageHeader title={t.tickets.title} icon={<TicketIcon className="h-6 w-6" />} />
+      <Notice tone="info">{t.tickets.note}</Notice>
+
+      {error !== null && <ErrorMessage message={errorText(error)} />}
+      {error === null && (isLoading || tickets === null) && <LoadingMessage />}
+      {error === null && tickets?.length === 0 && (
+        <EmptyMessage
+          label={t.tickets.empty}
+          action={
+            <Link href="/" className="btn btn-primary btn-sm">
+              {t.orders.browse}
+              <ArrowIcon className="h-4 w-4" />
+            </Link>
+          }
+        />
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {tickets?.map((ticket, i) => (
+          <article
+            key={ticket.id}
+            className="animate-fade-up relative flex flex-col gap-4 overflow-hidden rounded-xl border border-border bg-surface p-5 shadow-sm"
+            style={{ "--delay": `${i * 60}ms` } as React.CSSProperties}
+          >
+            <span className="absolute inset-y-0 start-0 w-1 bg-brand" aria-hidden="true" />
+            {/* Ticket-stub notches on both edges. */}
+            <span aria-hidden="true" className="absolute -start-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border border-border bg-background" />
+            <span aria-hidden="true" className="absolute -end-2.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border border-border bg-background" />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="tabular font-mono font-bold" dir="ltr">
+                {ticket.publicCode}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <StatusBadge kind="ticket" value={ticket.status} />
+                <StatusBadge kind="outcome" value={ticket.outcomeStatus} />
+              </div>
+            </div>
+            <div className="border-t border-dashed border-border-strong pt-4">
+              <SelectionDisplay selection={ticket.selection} />
+            </div>
+            <p className="flex items-center justify-between text-sm">
+              <span className="text-muted">{t.tickets.price}</span>
+              <span className="tabular font-bold text-brand">{money(ticket.unitPriceToman)}</span>
+            </p>
+          </article>
+        ))}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./config";
+import type { ApiErrorReason } from "./i18n/messages";
 import type {
   ConfirmOrderResult,
   Draw,
@@ -14,51 +15,50 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly details: unknown;
-  /** The backend's original (English) message — for debugging only, never shown in the UI. */
-  readonly serverMessage: string | undefined;
+  /** What went wrong, as a translatable key. The UI renders `t.errors[reason]` — never
+   * `message`, which holds the backend's original (English) text for debugging only. */
+  readonly reason: ApiErrorReason;
 
-  constructor(status: number, code: string, message: string, details?: unknown, serverMessage?: string) {
-    super(message);
+  constructor(status: number, code: string, reason: ApiErrorReason, serverMessage?: string, details?: unknown) {
+    super(serverMessage ?? reason);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.reason = reason;
     this.details = details;
-    this.serverMessage = serverMessage;
   }
 }
 
-// The backend's error messages are English; the UI must only ever show Persian. Specific
-// messages users can realistically hit get a precise translation, everything else falls
-// back to a Persian message chosen by error code.
-const SERVER_MESSAGE_FA: Record<string, string> = {
-  "Invalid email or password.": "ایمیل یا رمز عبور نادرست است.",
-  "An account with this email already exists.": "حسابی با این ایمیل قبلاً ثبت شده است.",
-  "This account is not active.": "این حساب کاربری فعال نیست.",
-  "Invalid or expired session.": "نشست شما منقضی شده است. لطفاً دوباره وارد شوید.",
-  "Session was invalidated by a global logout.": "نشست شما منقضی شده است. لطفاً دوباره وارد شوید.",
-  "Sales have closed for this draw.": "مهلت فروش بلیط برای این قرعه‌کشی به پایان رسیده است.",
-  "Sales have closed for this draw since the order was created.":
-    "مهلت فروش بلیط برای این قرعه‌کشی پس از ثبت سفارش به پایان رسید.",
-  "Sales have not opened yet for this draw.": "فروش بلیط برای این قرعه‌کشی هنوز آغاز نشده است.",
-  "This draw is not currently open for sales.": "این قرعه‌کشی در حال حاضر برای فروش باز نیست.",
-  "Admin sessions cannot place orders.": "حساب مدیریتی امکان خرید بلیط ندارد.",
-  "No upcoming draw is currently scheduled for this game.":
-    "در حال حاضر هیچ قرعه‌کشی‌ای با فروش باز برای این بازی وجود ندارد.",
+// Specific backend messages a user can realistically hit get a precise reason; everything
+// else falls back to a reason chosen by error code.
+const SERVER_MESSAGE_REASON: Record<string, ApiErrorReason> = {
+  "Invalid email or password.": "invalidCredentials",
+  "An account with this email already exists.": "emailTaken",
+  "This account is not active.": "accountInactive",
+  "Invalid or expired session.": "sessionExpired",
+  "Session was invalidated by a global logout.": "sessionExpired",
+  "Sales have closed for this draw.": "salesClosed",
+  "Sales have closed for this draw since the order was created.": "salesClosedAfterOrder",
+  "Sales have not opened yet for this draw.": "salesNotOpen",
+  "This draw is not currently open for sales.": "drawNotOpen",
+  "Admin sessions cannot place orders.": "adminCannotOrder",
+  "No upcoming draw is currently scheduled for this game.": "noUpcomingDraw",
 };
 
-const CODE_MESSAGE_FA: Record<string, string> = {
-  VALIDATION_ERROR: "اطلاعات واردشده معتبر نیست. لطفاً دوباره بررسی کنید.",
-  UNAUTHORIZED: "برای ادامه باید وارد حساب کاربری شوید.",
-  FORBIDDEN: "اجازه دسترسی به این بخش را ندارید.",
-  NOT_FOUND: "مورد درخواستی یافت نشد.",
-  CONFLICT: "این درخواست با وضعیت فعلی سازگار نیست. لطفاً دوباره تلاش کنید.",
-  RATE_LIMITED: "تعداد تلاش‌ها بیش از حد مجاز است. لطفاً چند دقیقه بعد دوباره تلاش کنید.",
-  INTERNAL_ERROR: "خطای داخلی سرور رخ داد. لطفاً دوباره تلاش کنید.",
+const CODE_REASON: Record<string, ApiErrorReason> = {
+  VALIDATION_ERROR: "validation",
+  UNAUTHORIZED: "unauthorized",
+  FORBIDDEN: "forbidden",
+  NOT_FOUND: "notFound",
+  CONFLICT: "conflict",
+  RATE_LIMITED: "rateLimited",
+  INTERNAL_ERROR: "server",
 };
 
-function persianErrorMessage(code: string, serverMessage: string | undefined): string {
-  if (serverMessage && SERVER_MESSAGE_FA[serverMessage]) return SERVER_MESSAGE_FA[serverMessage];
-  return CODE_MESSAGE_FA[code] ?? "خطای غیرمنتظره‌ای رخ داد.";
+function errorReason(status: number, code: string, serverMessage: string | undefined): ApiErrorReason {
+  if (serverMessage && SERVER_MESSAGE_REASON[serverMessage]) return SERVER_MESSAGE_REASON[serverMessage];
+  if (CODE_REASON[code]) return CODE_REASON[code];
+  return status >= 500 ? "server" : "unknown";
 }
 
 interface RequestOptions {
@@ -85,7 +85,7 @@ async function request<T>(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
-    throw new ApiError(0, "NETWORK_ERROR", "امکان ارتباط با سرور وجود ندارد.");
+    throw new ApiError(0, "NETWORK_ERROR", "network");
   }
 
   const isNoContent = response.status === 204;
@@ -94,12 +94,13 @@ async function request<T>(
   if (!response.ok) {
     const envelope = payload as { error?: { code?: string; message?: string; details?: unknown } } | null;
     const code = envelope?.error?.code ?? "UNKNOWN_ERROR";
+    const serverMessage = envelope?.error?.message;
     throw new ApiError(
       response.status,
       code,
-      persianErrorMessage(code, envelope?.error?.message),
+      errorReason(response.status, code, serverMessage),
+      serverMessage,
       envelope?.error?.details,
-      envelope?.error?.message,
     );
   }
 

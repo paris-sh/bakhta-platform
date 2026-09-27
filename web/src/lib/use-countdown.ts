@@ -39,12 +39,3 @@ export function useCountdown(targetIso: string | null | undefined): CountdownPar
 
   return parts;
 }
-
-function pad(n: number): string {
-  return n.toString().padStart(2, "0");
-}
-
-/** hh:mm:ss of the remaining time within the current day (days are rendered separately). */
-export function formatClock(parts: CountdownParts): string {
-  return `${pad(parts.hours)}:${pad(parts.minutes)}:${pad(parts.seconds)}`;
-}

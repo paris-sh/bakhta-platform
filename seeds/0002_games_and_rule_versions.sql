@@ -36,9 +36,15 @@ BEGIN
   SELECT id INTO v_six_chance_game_id FROM games WHERE code = 'SIX_CHANCE';
   IF v_six_chance_game_id IS NULL THEN
     INSERT INTO games (code, game_type, slug, name_fa, name_en, status)
-    VALUES ('SIX_CHANCE', 'SIX_CHANCE', 'six-chance', 'شانس شش', 'Six Chance', 'ACTIVE')
+    VALUES ('SIX_CHANCE', 'SIX_CHANCE', 'six-chance', 'شش شانس', 'Six Chance', 'ACTIVE')
     RETURNING id INTO v_six_chance_game_id;
   END IF;
+
+  -- Canonical-name correction: earlier runs of this seed inserted the Persian name in the
+  -- wrong word order ('شانس شش'). Re-running the seed repairs such databases; it only
+  -- touches that exact legacy value, so a name later changed on purpose is left alone.
+  UPDATE games SET name_fa = 'شش شانس'
+  WHERE code = 'SIX_CHANCE' AND name_fa = 'شانس شش';
 
   SELECT id INTO v_four_leaf_game_id FROM games WHERE code = 'FOUR_LEAF';
   IF v_four_leaf_game_id IS NULL THEN

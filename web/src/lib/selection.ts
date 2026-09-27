@@ -1,35 +1,37 @@
 import type { FourLeafRules, SixChanceRules, TicketDraft } from "./types";
 
+/** A validation failure as data — the UI turns it into text in the active language. */
+export type SelectionError =
+  | { kind: "fourLeafDigits" }
+  | { kind: "sixCount"; count: number }
+  | { kind: "sixRange"; min: number; max: number }
+  | { kind: "sixDistinct" }
+  | { kind: "symbolMissing" };
+
 export function validateFourLeafDraft(
   draft: Extract<TicketDraft, { kind: "FOUR_LEAF" }>,
-): string | null {
+): SelectionError | null {
   if (draft.isQuickPick) return null;
-  if (!/^\d{4}$/.test(draft.fourLeafNumber)) {
-    return "باید دقیقاً ۴ رقم باشد (صفر ابتدایی مجاز است).";
-  }
+  if (!/^\d{4}$/.test(draft.fourLeafNumber)) return { kind: "fourLeafDigits" };
   return null;
 }
 
 export function validateSixChanceDraft(
   draft: Extract<TicketDraft, { kind: "SIX_CHANCE" }>,
   rules: SixChanceRules,
-): string | null {
+): SelectionError | null {
   if (draft.isQuickPick) return null;
   const { min, max, count } = rules.selection.main_numbers;
   const symbolRange = rules.selection.chance_symbol;
 
   if (draft.numbers.length !== count || draft.numbers.some((n) => n === null)) {
-    return `باید ${count} عدد را انتخاب کنید.`;
+    return { kind: "sixCount", count };
   }
   const numbers = draft.numbers as number[];
-  if (numbers.some((n) => n < min || n > max)) {
-    return `اعداد باید بین ${min} تا ${max} باشند.`;
-  }
-  if (new Set(numbers).size !== count) {
-    return "اعداد نباید تکراری باشند.";
-  }
+  if (numbers.some((n) => n < min || n > max)) return { kind: "sixRange", min, max };
+  if (new Set(numbers).size !== count) return { kind: "sixDistinct" };
   if (draft.symbol === null || draft.symbol < symbolRange.min || draft.symbol > symbolRange.max) {
-    return `نماد شانس باید بین ${symbolRange.min} تا ${symbolRange.max} باشد.`;
+    return { kind: "symbolMissing" };
   }
   return null;
 }

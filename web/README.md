@@ -86,6 +86,12 @@ npm run build
 - **Prices and rules** on the purchase page come from the selected draw's snapshotted rule
   version (`draw.currentRulesSnapshot`), which is what the backend prices the order from,
   not from the game's current active rules.
+- **Languages**: English (default for first-time visitors) and Persian, switched with the
+  `EN | فا` control in the header. The choice is stored in the `bakhta_locale` cookie
+  (value `en` or `fa` only) so the server renders the right `lang`/`dir` on first paint.
+  All copy lives in `src/lib/i18n/messages.ts`; `fa` is type-checked against `en`, so a
+  missing translation fails `tsc`. Backend error text is never shown — the API client maps
+  errors to reason keys that the UI translates.
 - **Auth**: the session token is kept in `sessionStorage` only. Claim Tokens exist only in
   component state on the confirmation screen.
 - **Font**: Vazirmatn is self-hosted at build time via `next/font/google`. The first build
