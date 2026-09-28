@@ -7,7 +7,8 @@ import { useAdminAuth } from "@/lib/admin/auth-context";
 import { useAdminI18n } from "@/lib/admin/i18n";
 import { adminApi } from "@/lib/admin/api";
 import type { AdminAuditItem, AdminDraw, DraftInput, DrawWarning, ResultDetail, ResultPreview } from "@/lib/admin/types";
-import { fromTehranInput, toTehranInput } from "@/lib/admin/tehran-time";
+import { resolveTehranInput, toTehranInput } from "@/lib/admin/tehran-time";
+import { TehranDateTimeField } from "./TehranDateTimeField";
 import { MIN_REASON_LENGTH, reasonState, saveBlockers, validateDrawTimes, type TimeField, type TimeIssue } from "@/lib/admin/draw-validation";
 import { symbolsInRange } from "@/lib/chance-symbols";
 import { youtubeVideoId } from "@/lib/youtube";
@@ -411,7 +412,13 @@ function EditDrawModal({ detail, onClose, onSaved }: { detail: ResultDetail; onC
   const [checking, setChecking] = useState(false);
   const [working, setWorking] = useState(false);
   const [err, setErr] = useState<unknown>(null);
-  const iso = { open: fromTehranInput(open), close: fromTehranInput(close), draw: fromTehranInput(drawAt) };
+  // An untouched field keeps its stored instant exactly; an edited one is converted from Tehran
+  // time to UTC once, here.
+  const iso = {
+    open: resolveTehranInput(open, detail.draw.salesOpensAt),
+    close: resolveTehranInput(close, detail.draw.salesClosesAt),
+    draw: resolveTehranInput(drawAt, detail.draw.drawAt),
+  };
   const timeIssues = validateDrawTimes(iso);
   const body = { salesOpensAt: iso.open ?? undefined, salesClosesAt: iso.close ?? undefined, drawAt: iso.draw ?? undefined };
   // Editing a draw always needs a reason (≥ 5 characters), warnings or not.
@@ -503,13 +510,13 @@ export function TimeFields({
     return issue ? w.edit.times[issue.code] : undefined;
   };
   const field = (key: TimeField, id: string, label: string, value: string, set: (v: string) => void) => (
-    <Field label={label} htmlFor={id} error={errorFor(key)}>
-      <input id={id} type="datetime-local" dir="ltr" className={`${inputSm} w-full min-w-0`} value={value} onChange={(e) => set(e.target.value)} aria-invalid={errorFor(key) ? true : undefined} />
-    </Field>
+    <TehranDateTimeField id={id} label={label} value={value} onChange={set} error={errorFor(key)} />
   );
   return (
-    <fieldset className="flex flex-col gap-3">
-      <legend className="mb-1 text-xs text-muted">{w.tehranTime}</legend>
+    <fieldset className="flex flex-col gap-4">
+      <legend className="mb-1 text-xs text-muted">
+        {w.tehranTime} — {w.picker.chronology}
+      </legend>
       {field("open", "t-open", w.salesOpen, open, setOpen)}
       {field("close", "t-close", w.salesClose, close, setClose)}
       {field("draw", "t-draw", w.drawTime, drawAt, setDrawAt)}

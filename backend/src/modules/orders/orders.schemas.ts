@@ -82,7 +82,55 @@ export const orderResponseSchema = z.object({
 });
 
 export const orderListResponseSchema = z.array(orderResponseSchema);
-export const ticketListResponseSchema = z.array(ticketResponseSchema);
+
+export const myTicketsQuerySchema = z.object({
+  // Narrows My Tickets to one draw (e.g. "all my tickets for this draw" after checkout).
+  drawId: z.string().uuid().optional(),
+});
+
+// A ticket's CURRENT award exactly as stored by the published calculation run — the client
+// never computes a prize. No award, result or run identifiers are exposed.
+export const prizeResponseSchema = z.object({
+  tierCode: z.string(),
+  tierMatch: z.string().nullable(),
+  isJackpot: z.boolean(),
+  awardType: z.string(),
+  totalCashToman: z.string(),
+  freeTicketQuantity: z.number().int(),
+  components: z.array(
+    z.object({
+      tierCode: z.string(),
+      tierMatch: z.string().nullable(),
+      isJackpot: z.boolean(),
+      componentType: z.string(),
+      amountToman: z.string().nullable(),
+      freeTicketQuantity: z.number().int().nullable(),
+      matchedCombinations: z.number().int(),
+    }),
+  ),
+  claimDeadlineAt: z.string(),
+});
+
+/** Owner-only: the ticket's claim/payment record, when one exists. */
+const claimStateSchema = z.object({
+  status: z.string(),
+  requiresManualReconciliation: z.boolean(),
+  paidAt: z.string().nullable(),
+});
+
+export const myTicketResponseSchema = ticketResponseSchema.extend({
+  draw: z.object({
+    id: z.string().uuid(),
+    drawNumber: z.string(),
+    drawAt: z.string(),
+    status: z.string(),
+    game: z.object({ slug: z.string(), gameType: z.string(), nameEn: z.string(), nameFa: z.string() }),
+  }),
+  prize: prizeResponseSchema.nullable(),
+  claim: claimStateSchema.nullable(),
+});
+
+export const myTicketListResponseSchema = z.array(myTicketResponseSchema);
 
 export const confirmedTicketResponseSchema = ticketResponseSchema.extend({
   // Present (the raw token, returned exactly once) only for guest tickets, immediately
@@ -109,4 +157,7 @@ export const publicTicketCheckResponseSchema = z.object({
   lineTotalToman: z.string(),
   status: z.string(),
   outcomeStatus: z.string(),
+  // Public prize facts only (tier, amounts, components, deadline) — never the owner, the
+  // order, the claim record or the Claim Token.
+  prize: prizeResponseSchema.nullable(),
 });

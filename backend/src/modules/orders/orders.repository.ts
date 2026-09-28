@@ -159,14 +159,91 @@ export function createOrdersRepository(db: Database, clock: () => Date = () => n
         .execute();
     },
 
-    async findTicketsForUser(userId: string) {
-      const tickets = await db
-        .selectFrom("tickets")
-        .selectAll()
-        .where("owner_user_id", "=", userId)
-        .orderBy("created_at", "desc")
-        .execute();
+    /** The user's own tickets only (scoped in the query, never filtered afterwards).
+     * `drawId` narrows to one draw; `winnersOnly` to tickets with a current award. */
+    async findTicketsForUser(userId: string, opts: { drawId?: string | undefined; winnersOnly?: boolean } = {}) {
+      let q = db.selectFrom("tickets").selectAll().where("owner_user_id", "=", userId);
+      if (opts.drawId) q = q.where("draw_id", "=", opts.drawId);
+      if (opts.winnersOnly) {
+        q = q.where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom("prize_awards as a")
+              .innerJoin("results as r", "r.id", "a.result_id")
+              .select("a.id")
+              .whereRef("a.ticket_id", "=", "tickets.id")
+              .where("a.is_current", "=", true)
+              .where("r.is_public_current", "=", true),
+          ),
+        );
+      }
+      const tickets = await q.orderBy("created_at", "desc").orderBy("line_number").execute();
       return attachSelections(db, tickets);
+    },
+
+    /** Game and draw facts for the given draws (display context for ticket cards). */
+    async findDrawSummaries(drawIds: string[]) {
+      if (drawIds.length === 0) return [];
+      return db
+        .selectFrom("draws as d")
+        .innerJoin("games as g", "g.id", "d.game_id")
+        .select([
+          "d.id",
+          "d.draw_number",
+          "d.draw_at",
+          "d.status",
+          "d.current_rules_snapshot",
+          "g.slug as game_slug",
+          "g.game_type",
+          "g.name_en",
+          "g.name_fa",
+        ])
+        .where("d.id", "in", drawIds)
+        .execute();
+    },
+
+    /**
+     * The authoritative CURRENT award of each ticket (never a superseded one): only
+     * `is_current` awards of the draw's current public result, with their components.
+     */
+    async findCurrentAwards(ticketIds: string[]) {
+      if (ticketIds.length === 0) return { awards: [], components: [] };
+      const awards = await db
+        .selectFrom("prize_awards as a")
+        .innerJoin("results as r", "r.id", "a.result_id")
+        .select([
+          "a.id",
+          "a.ticket_id",
+          "a.tier_code",
+          "a.award_type",
+          "a.amount_toman",
+          "a.free_ticket_quantity",
+          "a.status",
+          "a.claim_deadline_at",
+        ])
+        .where("a.ticket_id", "in", ticketIds)
+        .where("a.is_current", "=", true)
+        .where("r.is_public_current", "=", true)
+        .execute();
+      const components = awards.length
+        ? await db
+            .selectFrom("prize_award_components")
+            .select(["award_id", "tier_code", "component_type", "amount_toman", "free_ticket_quantity", "matched_combinations"])
+            .where("award_id", "in", awards.map((a) => a.id))
+            .orderBy("created_at")
+            .execute()
+        : [];
+      return { awards, components };
+    },
+
+    /** Each ticket's continuing claim record, if one exists (owner-only data). */
+    async findClaims(ticketIds: string[]) {
+      if (ticketIds.length === 0) return [];
+      return db
+        .selectFrom("prize_claims")
+        .select(["ticket_id", "status", "requires_manual_reconciliation", "paid_at"])
+        .where("ticket_id", "in", ticketIds)
+        .execute();
     },
 
     async findTicketCheckByPublicCode(publicCode: string) {
@@ -186,6 +263,7 @@ export function createOrdersRepository(db: Database, clock: () => Date = () => n
           "draws.draw_number as draw_number",
           "draws.draw_at as draw_at",
           "draws.status as draw_status",
+          "draws.current_rules_snapshot as rules_snapshot",
           "games.code as game_code",
           "games.slug as game_slug",
         ])

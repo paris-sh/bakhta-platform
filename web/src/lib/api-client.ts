@@ -4,11 +4,12 @@ import type {
   ConfirmOrderResult,
   Draw,
   Game,
+  JackpotAnnouncement,
   MeResponse,
+  MyTicket,
   Order,
   PublicTicketCheck,
   SessionResponse,
-  Ticket,
   PublicResultDetail,
   PublicResultListItem,
 } from "./types";
@@ -164,7 +165,11 @@ export const api = {
     request<ConfirmOrderResult>("POST", `/v1/dev/orders/${orderId}/confirm`),
 
   myOrders: (token: string) => request<Order[]>("GET", "/v1/me/orders", undefined, { token }),
-  myTickets: (token: string) => request<Ticket[]>("GET", "/v1/me/tickets", undefined, { token }),
+  myTickets: (token: string, drawId?: string) =>
+    request<MyTicket[]>("GET", `/v1/me/tickets${drawId ? `?drawId=${encodeURIComponent(drawId)}` : ""}`, undefined, { token }),
+  myWinnings: (token: string) => request<MyTicket[]>("GET", "/v1/me/winnings", undefined, { token }),
+  jackpotAnnouncement: (gameSlug: string) =>
+    request<{ announcement: JackpotAnnouncement | null }>("GET", `/v1/results/jackpot-announcement?game=${encodeURIComponent(gameSlug)}`),
 
   checkTicket: (publicCode: string) =>
     request<PublicTicketCheck>("GET", `/v1/tickets/check/${encodeURIComponent(publicCode)}`),

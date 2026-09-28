@@ -31,6 +31,7 @@ function salesWindowError(rejection: SalesWindowRejection, stage: "create" | "co
 import { resolveRulesValidator } from "../games/rules.schemas.js";
 import type { FourLeafRulesV1, SixChanceRules } from "../games/rules.schemas.js";
 import type { NewTicketInput, OrdersRepository, TicketSelectionShape } from "./orders.repository.js";
+import { tierMetaFromSnapshot, toClaimView, toPrizeView } from "./prize-view.js";
 import {
   fourLeafSelectionKey,
   generateFourLeafQuickPick,
@@ -274,14 +275,45 @@ export function createOrdersService(repo: OrdersRepository) {
       return shapes;
     },
 
-    async listTicketsForUser(userId: string) {
-      const tickets = await repo.findTicketsForUser(userId);
-      return tickets.map((t) => toTicketShape(t, false));
+    /** The caller's own tickets with their draw, current prize (if any) and claim state.
+     * Ownership is enforced by the repository query (owner_user_id = userId). */
+    async listTicketsForUser(userId: string, opts: { drawId?: string | undefined; winnersOnly?: boolean } = {}) {
+      const tickets = await repo.findTicketsForUser(userId, opts);
+      const ticketIds = tickets.map((t) => t.id);
+      const [draws, { awards, components }, claims] = await Promise.all([
+        repo.findDrawSummaries([...new Set(tickets.map((t) => t.draw_id))]),
+        repo.findCurrentAwards(ticketIds),
+        repo.findClaims(ticketIds),
+      ]);
+      const drawById = new Map(draws.map((d) => [d.id, d]));
+      const tiersByDraw = new Map(draws.map((d) => [d.id, tierMetaFromSnapshot(d.current_rules_snapshot)]));
+      const awardByTicket = new Map(awards.map((a) => [a.ticket_id, a]));
+      const claimByTicket = new Map(claims.map((c) => [c.ticket_id, c]));
+      return tickets.map((t) => {
+        const draw = drawById.get(t.draw_id)!;
+        const award = awardByTicket.get(t.id);
+        const claim = claimByTicket.get(t.id);
+        return {
+          ...toTicketShape(t, false),
+          draw: {
+            id: draw.id,
+            drawNumber: draw.draw_number,
+            drawAt: draw.draw_at.toISOString(),
+            status: draw.status,
+            game: { slug: draw.game_slug, gameType: draw.game_type, nameEn: draw.name_en, nameFa: draw.name_fa },
+          },
+          prize: award ? toPrizeView(award, components, tiersByDraw.get(t.draw_id)!) : null,
+          claim: claim ? toClaimView(claim) : null,
+        };
+      });
     },
 
     async checkTicketByPublicCode(publicCode: string) {
       const ticket = await repo.findTicketCheckByPublicCode(publicCode);
       if (!ticket) throw new NotFoundError(`No ticket found with public code "${publicCode}".`);
+      // Only the public part of the current award: never the owner, claim or Claim Token.
+      const { awards, components } = await repo.findCurrentAwards([ticket.id]);
+      const award = awards[0];
       return {
         publicCode: ticket.public_code,
         gameCode: ticket.game_code,
@@ -295,6 +327,7 @@ export function createOrdersService(repo: OrdersRepository) {
         lineTotalToman: ticket.line_total_toman ?? ticket.unit_price_toman,
         status: ticket.status,
         outcomeStatus: ticket.outcome_status,
+        prize: award ? toPrizeView(award, components, tierMetaFromSnapshot(ticket.rules_snapshot)) : null,
       };
     },
 

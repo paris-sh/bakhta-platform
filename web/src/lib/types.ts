@@ -113,6 +113,57 @@ export interface Ticket {
   duplicateInOrder: boolean;
 }
 
+/** A ticket's CURRENT award exactly as the server stored it — never computed client-side. */
+export interface TicketPrize {
+  tierCode: string;
+  /** Rule match pattern, e.g. "6_MAIN_PLUS_CHANCE" (null for Four Leaf's single tier). */
+  tierMatch: string | null;
+  isJackpot: boolean;
+  awardType: "CASH" | "FREE_TICKET" | "MIXED" | string;
+  totalCashToman: string;
+  freeTicketQuantity: number;
+  components: {
+    tierCode: string;
+    tierMatch: string | null;
+    isJackpot: boolean;
+    componentType: "CASH" | "FREE_TICKET" | string;
+    amountToman: string | null;
+    freeTicketQuantity: number | null;
+    matchedCombinations: number;
+  }[];
+  claimDeadlineAt: string;
+}
+
+/** Owner-only claim/payment state (absent until a claim exists). */
+export interface TicketClaimState {
+  status: string;
+  requiresManualReconciliation: boolean;
+  paidAt: string | null;
+}
+
+/** A ticket as returned by My Tickets / My Winnings (the signed-in owner only). */
+export interface MyTicket extends Ticket {
+  draw: {
+    id: string;
+    drawNumber: string;
+    drawAt: string;
+    status: string;
+    game: { slug: string; gameType: GameType; nameEn: string; nameFa: string };
+  };
+  prize: TicketPrize | null;
+  claim: TicketClaimState | null;
+}
+
+export interface JackpotAnnouncement {
+  game: { slug: string; gameType: GameType; nameEn: string; nameFa: string };
+  drawNumber: string;
+  drawAt: string;
+  winningTickets: number;
+  jackpotToman: string;
+  /** How many winning tickets received each amount (a whole-Toman split may differ by 1). */
+  sharesPerTicket: { amountToman: string; tickets: number }[];
+}
+
 export interface ConfirmedTicket extends Ticket {
   claimToken: string | null;
 }
@@ -153,6 +204,8 @@ export interface PublicTicketCheck {
   lineTotalToman: string;
   status: string;
   outcomeStatus: string;
+  /** Public prize facts only — never owner, order, claim or Claim Token data. */
+  prize: TicketPrize | null;
 }
 
 export interface MeResponse {

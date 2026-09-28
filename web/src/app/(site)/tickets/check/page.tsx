@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { SelectionDisplay } from "@/components/SelectionDisplay";
 import { GameIcon, GamePattern, gameTheme } from "@/components/brand";
 import { SearchIcon, ShieldIcon } from "@/components/icons";
+import { PrizeBadge, PrizeDetails } from "@/components/prize/PrizeDetails";
 import type { Game, PublicTicketCheck } from "@/lib/types";
 
 export default function TicketCheckPage() {
@@ -116,8 +117,20 @@ export default function TicketCheckPage() {
               <StatusBadge kind="ticket" value={result.status} />
             </Row>
             <Row label={t.check.outcome}>
-              <StatusBadge kind="outcome" value={result.outcomeStatus} />
+              {result.prize ? <PrizeBadge prize={result.prize} /> : <StatusBadge kind="outcome" value={result.outcomeStatus} />}
             </Row>
+            {/* Public prize facts only; the Claim Token stays the separate secret for claiming. */}
+            {result.prize && (
+              <Row label={t.check.prizeTitle} wide>
+                <div className={`rounded-lg p-4 font-normal ${result.prize.isJackpot ? "bg-gold-50" : "bg-surface-muted"}`}>
+                  <PrizeDetails prize={result.prize} />
+                  <p className="mt-3 flex items-start gap-1.5 text-xs text-muted">
+                    <ShieldIcon className="h-4 w-4 shrink-0 text-brand" />
+                    {t.check.guestClaimNote}
+                  </p>
+                </div>
+              </Row>
+            )}
           </dl>
         </article>
       )}

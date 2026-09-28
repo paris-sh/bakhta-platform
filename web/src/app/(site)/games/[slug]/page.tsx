@@ -15,7 +15,7 @@ import { SelectionDisplay } from "@/components/SelectionDisplay";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Stepper, type PurchaseStep } from "@/components/Stepper";
 import { GLOW, GameIcon, GamePattern, Glow, gameTheme } from "@/components/brand";
-import { ArrowIcon, BackIcon, CalendarIcon, CheckCircleIcon, ClockIcon, PlusIcon, UserIcon } from "@/components/icons";
+import { ArrowIcon, BackIcon, CalendarIcon, CheckCircleIcon, ClockIcon, PlusIcon, TicketIcon, UserIcon } from "@/components/icons";
 import {
   draftCombinationCount,
   draftToTicketRequest,
@@ -38,6 +38,7 @@ import type {
   TicketSelection,
 } from "@/lib/types";
 import { DEMO_MODE } from "@/lib/config";
+import { confirmationTickets, drawTicketsHref } from "@/lib/prize";
 import { symbolsInRange } from "@/lib/chance-symbols";
 import { ChanceSymbolIcon } from "@/components/ChanceSymbol";
 
@@ -202,6 +203,8 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
       </div>
     );
   }
+
+  const orderTickets = order ? confirmationTickets(order, confirmResult) : [];
 
   const submitErrorText =
     submitError?.kind === "guestEmail"
@@ -403,10 +406,15 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
 
                 {!DEMO_MODE && <Notice tone="warning">{t.play.paymentDisabled}</Notice>}
 
+                {/* Exactly the tickets of the order just placed — every line, never tickets
+                    from an earlier order. "All my tickets for this draw" is a separate link. */}
                 <div>
-                  <h3 className="mb-3 text-lg font-bold">{t.play.yourTickets}</h3>
+                  <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 className="text-lg font-bold">{t.play.orderTickets}</h3>
+                    <span className="text-sm text-muted">{t.play.orderTicketsCount(orderTickets.length)}</span>
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {(confirmResult?.tickets ?? order.tickets).map((ticket, i) => (
+                    {orderTickets.map((ticket, i) => (
                       <div
                         key={ticket.id}
                         className="animate-fade-up relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-surface p-4 shadow-xs"
@@ -440,13 +448,20 @@ export default function GamePlayPage({ params }: { params: Promise<{ slug: strin
                   </div>
                 </div>
 
-                {confirmResult && <ClaimTokenPanel tickets={confirmResult.tickets} />}
+                {/* Guests: this order's one-time Claim Tokens only, from component state. */}
+                {confirmResult && confirmResult.order.id === order.id && <ClaimTokenPanel tickets={confirmResult.tickets} />}
 
-                <div className="flex flex-col gap-3 sm:flex-row">
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                   <button type="button" onClick={buyAgain} className="btn btn-primary btn-lg">
                     <PlusIcon />
                     {t.play.buyMore}
                   </button>
+                  {user && (
+                    <Link href={drawTicketsHref(draw.id)} className="btn btn-secondary btn-lg">
+                      <TicketIcon className="h-5 w-5" />
+                      {t.play.viewAllDrawTickets}
+                    </Link>
+                  )}
                   <Link href="/" className="btn btn-secondary btn-lg">
                     <BackIcon className="h-4 w-4" />
                     {t.common.backHome}

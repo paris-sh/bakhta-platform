@@ -8,6 +8,8 @@ import { EmptyMessage, ErrorMessage, LoadingMessage } from "@/components/StatusM
 import { GameCard } from "@/components/GameCard";
 import { CloverPattern, GLOW, Glow } from "@/components/brand";
 import { ArrowIcon, CheckIcon, SearchIcon } from "@/components/icons";
+import { WinnerBanner } from "@/components/prize/WinnerBanner";
+import { JackpotAnnouncements } from "@/components/prize/JackpotAnnouncement";
 import type { Draw, Game } from "@/lib/types";
 
 export default function HomePage() {
@@ -44,7 +46,10 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col gap-14 pb-4">
+      {/* Signed-in winners only: the server returns the caller's own winning tickets. */}
+      <WinnerBanner />
       <Hero />
+      {games && <JackpotAnnouncements games={games} />}
 
       <section className="container-page" aria-labelledby="how-title">
         <h2 id="how-title" className="sr-only">

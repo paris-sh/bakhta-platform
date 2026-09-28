@@ -246,6 +246,38 @@ export function createResultsRepository(db: Database) {
         .execute();
     },
 
+    /** The most recent draw of a Six Chance game with a current public result (drafts,
+     * discarded and superseded versions never qualify), with its published run summary. */
+    latestPublishedSixChanceDraw(slug: string) {
+      return drawBase(db)
+        .innerJoin("results as r", (j) => j.onRef("r.draw_id", "=", "d.id").on("r.is_public_current", "=", true))
+        .innerJoin("prize_calculation_runs as pr", (j) => j.onRef("pr.result_id", "=", "r.id").on("pr.status", "=", "PUBLISHED"))
+        .select(["pr.summary"])
+        .where("g.slug", "=", slug)
+        .where("d.game_type", "=", "SIX_CHANCE")
+        .orderBy("d.draw_at", "desc")
+        .limit(1)
+        .executeTakeFirst();
+    },
+
+    /** Current jackpot shares of a draw, grouped by amount: how many winning tickets
+     * received each amount (a whole-Toman split can differ by one Toman). Counts only. */
+    async jackpotShares(drawId: string, jackpotTierCode: string) {
+      const rows = await db
+        .selectFrom("prize_award_components as c")
+        .innerJoin("prize_awards as a", "a.id", "c.award_id")
+        .innerJoin("results as r", "r.id", "a.result_id")
+        .select(["c.amount_toman", (eb) => eb.fn.countAll<string>().as("tickets")])
+        .where("a.draw_id", "=", drawId)
+        .where("a.is_current", "=", true)
+        .where("r.is_public_current", "=", true)
+        .where("c.tier_code", "=", jackpotTierCode)
+        .groupBy("c.amount_toman")
+        .orderBy("c.amount_toman", "desc")
+        .execute();
+      return rows.map((r) => ({ amountToman: r.amount_toman ?? "0", tickets: Number(r.tickets) }));
+    },
+
     // ---------------------------------------------------------------- lists
 
     async listAwaiting(opts: { gameId?: string | undefined; page: number; pageSize: number }, now: Date) {

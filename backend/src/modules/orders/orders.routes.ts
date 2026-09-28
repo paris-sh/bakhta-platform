@@ -14,10 +14,11 @@ import {
   createOrderBodySchema,
   orderIdParamsSchema,
   orderListResponseSchema,
+  myTicketListResponseSchema,
+  myTicketsQuerySchema,
   orderResponseSchema,
   publicCodeParamsSchema,
   publicTicketCheckResponseSchema,
-  ticketListResponseSchema,
 } from "./orders.schemas.js";
 import type { OrdersService, Purchaser } from "./orders.service.js";
 
@@ -108,11 +109,25 @@ export function registerOrdersRoutes(
     "/v1/me/tickets",
     {
       onRequest: [authenticate, requirePrincipalType("USER")],
-      schema: { response: { 200: ticketListResponseSchema } },
+      schema: { querystring: myTicketsQuerySchema, response: { 200: myTicketListResponseSchema } },
     },
     async (request) => {
       const principal = request.principal as { type: "USER"; userId: string };
-      return ordersService.listTicketsForUser(principal.userId);
+      return ordersService.listTicketsForUser(principal.userId, { drawId: request.query.drawId });
+    },
+  );
+
+  // The signed-in user's own winning tickets (current awards of published results only) —
+  // drives the personal winner banner. Scoped to the caller in the query itself.
+  typed.get(
+    "/v1/me/winnings",
+    {
+      onRequest: [authenticate, requirePrincipalType("USER")],
+      schema: { response: { 200: myTicketListResponseSchema } },
+    },
+    async (request) => {
+      const principal = request.principal as { type: "USER"; userId: string };
+      return ordersService.listTicketsForUser(principal.userId, { winnersOnly: true });
     },
   );
 

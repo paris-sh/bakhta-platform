@@ -10,6 +10,7 @@ import { AdminCard, Pill, Skeleton, useToast } from "@/components/admin/ui";
 import { gameLabel } from "@/components/admin/cells";
 import { ReasonModal } from "@/components/admin/DrawWorkspace";
 import { GameIcon } from "@/components/brand";
+import { formatSlotTime } from "@/lib/admin/tehran-time";
 
 /**
  * Reminder-only scheduling on the dashboard: each expected occurrence of every active draw
@@ -53,7 +54,7 @@ export function ScheduleReminders() {
             const game = games[g.gameId];
             const name = game ? gameLabel(game, locale) : "…";
             const slot = g.slots.find((s) => s.slotId === occ.slotId);
-            const slotName = occ.slotLabel ?? slot?.drawTime ?? occ.slotId;
+            const slotName = occ.slotLabel ?? (slot ? formatSlotTime(slot.drawTime, locale) : occ.slotId);
             const tone = occ.state === "MISSED" ? "danger" : occ.state === "OVERDUE" ? "warning" : "neutral";
             const createHref = `/admin/draws?create=${g.gameId}&occurrence=${encodeURIComponent(occ.key)}`;
             return (

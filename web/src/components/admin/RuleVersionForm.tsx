@@ -6,6 +6,8 @@ import type { AdminMessages } from "@/lib/i18n/admin-messages";
 import { binomial } from "@/lib/six-chance";
 import { newSlotId, upgradeSchedule, type ScheduleSlot } from "@/lib/admin/rules-upgrade";
 import { AdminCard, Callout, Field, Pill, inputSm } from "./ui";
+import { SlotTimeSelect } from "./TehranDateTimeField";
+import { formatSlotTime } from "@/lib/admin/tehran-time";
 
 // Game-specific rule editor. Labelled fields for every configurable value the backend's
 // rules.schemas.ts validates; values the schema fixes (selection shape, timezone, tiers,
@@ -393,7 +395,7 @@ function validateSlots(rules: Rules, a: AdminMessages, e: Errors) {
 }
 
 function ScheduleEditor({ rules, readOnly, errors, onSchedule }: { rules: Rules; readOnly: boolean; errors: Errors; onSchedule: (schedule: Rules) => void }) {
-  const { a, num } = useAdminI18n();
+  const { a, num, locale } = useAdminI18n();
   const uid = useId();
   const f = a.rules.fields;
   const s = a.workflow.slots;
@@ -447,7 +449,7 @@ function ScheduleEditor({ rules, readOnly, errors, onSchedule }: { rules: Rules;
               <div className="flex flex-wrap items-center gap-2">
                 <Pill tone={slot.enabled ? "success" : "neutral"}>{slot.enabled ? s.enabled : s.disabled}</Pill>
                 <span className="font-semibold">
-                  {slot.label || s.unnamed(i + 1)} · <span dir="ltr">{slot.draw_time}</span>
+                  {slot.label || s.unnamed(i + 1)} · <span dir="ltr">{formatSlotTime(slot.draw_time, locale)}</span>
                 </span>
                 {!readOnly && (
                   <span className="ms-auto flex flex-wrap gap-1.5">
@@ -465,7 +467,8 @@ function ScheduleEditor({ rules, readOnly, errors, onSchedule }: { rules: Rules;
                   <input id={`${pid}-label`} className={inputSm} value={slot.label ?? ""} maxLength={60} disabled={readOnly} onChange={(e) => patch(i, { label: e.target.value.trim() === "" ? null : e.target.value })} />
                 </Field>
                 <Field label={f.drawTime} htmlFor={`${pid}-time`} error={err(i, "draw_time")}>
-                  <input id={`${pid}-time`} type="time" dir="ltr" className={inputSm} value={slot.draw_time} disabled={readOnly} onChange={(e) => patch(i, { draw_time: e.target.value })} />
+                  {/* Tehran business time, 24-hour, in the locale's digits (never AM/PM). */}
+                  <SlotTimeSelect id={`${pid}-time`} value={slot.draw_time} disabled={readOnly} onChange={(v) => patch(i, { draw_time: v })} />
                 </Field>
                 <Field label={f.timezone} htmlFor={`${pid}-tz`}>
                   <select id={`${pid}-tz`} dir="ltr" className={inputSm} value={slot.timezone} disabled={readOnly} onChange={(e) => patch(i, { timezone: e.target.value })}>

@@ -7,6 +7,8 @@ import { ADMIN_PERMISSIONS } from "../auth/permissions.js";
 import {
   adminResultListQuerySchema,
   drawIdParamsSchema,
+  jackpotAnnouncementQuerySchema,
+  jackpotAnnouncementResponseSchema,
   publicResultDetailResponseSchema,
   publicResultListQuerySchema,
   publicResultListResponseSchema,
@@ -107,6 +109,12 @@ export function registerResultsRoutes(app: FastifyInstance, results: ResultsServ
     "/v1/results",
     { schema: { querystring: publicResultListQuerySchema, response: { 200: publicResultListResponseSchema } } },
     async (request) => results.publicList(request.query),
+  );
+
+  typed.get(
+    "/v1/results/jackpot-announcement",
+    { schema: { querystring: jackpotAnnouncementQuerySchema, response: { 200: jackpotAnnouncementResponseSchema } } },
+    async (request) => results.jackpotAnnouncement(request.query.game),
   );
 
   typed.get(

@@ -55,6 +55,22 @@ export const publicResultListQuerySchema = z.object({
   game: z.string().regex(/^[a-z0-9-]+$/).optional(),
 });
 
+export const jackpotAnnouncementQuerySchema = z.object({ game: z.string().regex(/^[a-z0-9-]+$/) });
+
+// Anonymous by design: how many winning tickets and what each received — never which ones.
+export const jackpotAnnouncementResponseSchema = z.object({
+  announcement: z
+    .object({
+      game: z.object({ slug: z.string(), gameType: z.string(), nameEn: z.string(), nameFa: z.string() }),
+      drawNumber: z.string(),
+      drawAt: z.string(),
+      winningTickets: z.number().int(),
+      jackpotToman: z.string(),
+      sharesPerTicket: z.array(z.object({ amountToman: z.string(), tickets: z.number().int() })),
+    })
+    .nullable(),
+});
+
 export const publicResultParamsSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/),
   drawNumber: z.string().regex(/^\d{1,18}$/),

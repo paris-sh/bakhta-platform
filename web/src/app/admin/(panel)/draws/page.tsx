@@ -9,7 +9,7 @@ import { useAdminI18n } from "@/lib/admin/i18n";
 import { adminApi } from "@/lib/admin/api";
 import type { AdminDrawListItem, AdminGame, DrawWarning, GameReminders, ManualDrawResult, Paged, ScheduledOccurrence } from "@/lib/admin/types";
 import { saveBlockers, validateDrawTimes } from "@/lib/admin/draw-validation";
-import { fromTehranInput, tehranInputFromNow, toTehranInput } from "@/lib/admin/tehran-time";
+import { formatSlotTime, fromTehranInput, tehranInputFromNow, toTehranInput } from "@/lib/admin/tehran-time";
 import { useBreadcrumbs } from "@/components/admin/AdminShell";
 import {
   AdminCard,
@@ -411,7 +411,11 @@ function CreateDrawModal({
     }
   }
 
-  const occLabel = (o: ScheduledOccurrence) => `${o.slotLabel ?? rem?.slots.find((s) => s.slotId === o.slotId)?.drawTime ?? o.slotId} — ${dateTime(o.drawAt)} (${w.reminders.state[o.state]})`;
+  const slotName = (o: ScheduledOccurrence) => {
+    const slotTime = rem?.slots.find((s) => s.slotId === o.slotId)?.drawTime;
+    return o.slotLabel ?? (slotTime ? formatSlotTime(slotTime, locale) : o.slotId);
+  };
+  const occLabel = (o: ScheduledOccurrence) => `${slotName(o)} — ${dateTime(o.drawAt)} (${w.reminders.state[o.state]})`;
   const differs = occ !== null && JSON.stringify(times) !== JSON.stringify(occurrenceTimes(occ));
 
   return (
@@ -442,7 +446,7 @@ function CreateDrawModal({
               {occ.state !== "UPCOMING" && <Pill tone="warning">{w.reminders.state[occ.state]}</Pill>}
             </p>
             <p className="mt-0.5 text-xs">
-              {w.form.slot}: {occ.slotLabel ?? rem?.slots.find((s) => s.slotId === occ.slotId)?.drawTime ?? occ.slotId} · {w.form.timezone}: <span dir="ltr">{occ.timezone}</span>
+              {w.form.slot}: {slotName(occ)} · {w.form.timezone}: <span dir="ltr">{occ.timezone}</span>
             </p>
             {occ.state === "OVERDUE" && <p className="mt-1 text-xs">{w.form.overdue(dateTime(occ.salesOpensAt))}</p>}
             {occ.state === "MISSED" && <p className="mt-1 text-xs">{w.form.missed}</p>}

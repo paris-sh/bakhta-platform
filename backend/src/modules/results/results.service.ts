@@ -461,6 +461,32 @@ export function createResultsService(repo: ResultsRepository) {
       };
     },
 
+    /**
+     * Public homepage announcement: only when the game's LATEST current published result has
+     * at least one jackpot-winning ticket. Anonymous by construction — counts and amounts
+     * only; no ticket code, owner, order, claim or internal identifier.
+     */
+    async jackpotAnnouncement(slug: string) {
+      const draw = await repo.latestPublishedSixChanceDraw(slug);
+      if (!draw) return { announcement: null };
+      const summary = draw.summary as unknown as CalcOutput["summary"];
+      const jackpotTier = summary.tiers.find((t) => t.prizeType === "JACKPOT_POOL");
+      if (!jackpotTier || !summary.jackpot || summary.jackpot.winningCombinations === 0) return { announcement: null };
+      const shares = await repo.jackpotShares(draw.id, jackpotTier.code);
+      const winningTickets = shares.reduce((n, s) => n + s.tickets, 0);
+      if (winningTickets === 0) return { announcement: null };
+      return {
+        announcement: {
+          game: { slug: draw.game_slug, gameType: draw.game_type, nameEn: draw.name_en, nameFa: draw.name_fa },
+          drawNumber: draw.draw_number,
+          drawAt: draw.draw_at.toISOString(),
+          winningTickets,
+          jackpotToman: summary.jackpot.jackpotPaidToman,
+          sharesPerTicket: shares,
+        },
+      };
+    },
+
     async publicDetail(slug: string, drawNumber: string) {
       const draw = await repo.findPublicDraw(slug, drawNumber);
       if (!draw) throw new NotFoundError("No published result for this draw.");
